@@ -15,7 +15,7 @@ build:
   number: {{ describe_number }}
   string: {{ describe_hash }}
   script:
-    - {{ PYTHON }} -m pip install python/. -vvv
+    - {{ PYTHON }} -m pip install . -vvv
 
 requirements:
   build:

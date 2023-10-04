@@ -49,6 +49,17 @@ test-extras = ["test"]
 test-skip = ["*universal2:arm64"]
 build-verbosity = 1
 
+[[tool.cibuildwheel.overrides]]
+select = "cp36-*"
+
+[tool.cibuildwheel.linux]
+archs = "native"
+
+[tool.cibuildwheel.macos]
+archs = "x86_64 arm64"
+
+[tool.cibuildwheel.windows]
+archs = "native"
 
 [tool.ruff]
 select = [
