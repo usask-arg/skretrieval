@@ -8,6 +8,7 @@ name = "skretrieval"
 version = "0.0.1"
 description="A minimal example package (with pybind11)"
 readme = "README.md"
+dependencies = ['numpy']
 authors = [
     { name = "My Name", email = "me@email.com" },
 ]
