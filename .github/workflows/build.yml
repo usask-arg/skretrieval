@@ -1,0 +1,88 @@
+name: 'build'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [ opened, reopened, synchronize, labeled ]
+  release:
+    types:
+      - published
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  build-conda-skretrieval:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target_plat: x86_64
+          - os: windows-latest
+            target_plat: x86_64
+          - os: macos-11
+            target_plat: x86_64
+          - os: macos-11
+            target_plat: arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Setup Conda build environment
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          activate-environment: conda_build
+          environment-file: ci/conda-envs/build.yml
+          channels: conda-forge
+          auto-activate-base: false
+
+      - name: Build Conda package
+        shell: bash -el {0}
+        run: |
+          conda-build -c conda-forge conda.recipe --output-folder pkgs/
+
+      - name: Build Conda package (cross mac arm)
+        shell: bash -el {0}
+        if: (matrix.target_plat == 'arm') && (matrix.os == 'macos-11')
+        run: |
+          conda-build -c conda-forge conda.recipe -m conda.recipe/osx_arm64_.yaml --output-folder pkgs/
+
+      - name: Save conda package
+        uses: actions/upload-artifact@v3
+        with:
+          name: skretrieval-conda-${{ matrix.os }}-${{ matrix.target_plat }}
+          path: pkgs
+
+  build_wheels_cibuildwheel:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-11, windows-latest ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.16.2
+        with:
+          output-dir: wheelhouse
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ./wheelhouse/*.whl

@@ -1,0 +1,66 @@
+{% set version = environ.get('GIT_DESCRIBE_TAG', '0.0.0.dev').lstrip('v') %}
+{% set describe_number = environ.get('GIT_DESCRIBE_NUMBER', '0') %}
+{% set describe_hash = environ.get('GIT_DESCRIBE_HASH', 'untagged') %}
+{% set py_version = environ['CONDA_PY'] %}
+
+package:
+  name: skretrieval
+  version: {{ version }}
+
+source:
+  git_url: ../
+
+build:
+  binary_relocation: true
+  number: {{ describe_number }}
+  string: {{ describe_hash }}
+  script_env:
+    - CMAKE_ARGS_EXTRA
+  script:
+    - {{ PYTHON }} -m pip install python/. -vvv
+
+requirements:
+  build:
+    - cmake >=3.5
+    - python                                 # [build_platform != target_platform]
+    - cross-python_{{ target_platform }}     # [build_platform != target_platform]
+    - {{ compiler('cxx') }}
+    - {{ compiler('fortran') }} # [not win]
+
+  host:
+    - python {{ python }}
+    - pip
+    - eigen
+    - libblas=*=*netlib
+    - libcblas=*=*netlib
+    - liblapack=*=*netlib
+    - liblapacke=*=*netlib
+    - libtmglib=*=*netlib
+    - scikit-build-core
+    - pybind11 >=2.10.0
+    - llvm-openmp # [mac]
+
+  run:
+    - python {{ python }}
+    - numpy
+    - libblas=*=*netlib
+    - libcblas=*=*netlib
+    - liblapack=*=*netlib
+    - liblapacke=*=*netlib
+    - libtmglib=*=*netlib
+    - llvm-openmp # [mac]
+
+
+test:
+  imports:
+    - skretrieval
+  requires:
+    - pytest
+  source_files:
+    - tests
+  commands:
+    - pytest tests
+
+about:
+  summary: An example project built with pybind11 and scikit-build.
+  license_file: LICENSE
