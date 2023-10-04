@@ -51,4 +51,4 @@ test:
 
 about:
   summary: An example project built with pybind11 and scikit-build.
-  license_file: LICENSE
+  license_file: ../license.md
