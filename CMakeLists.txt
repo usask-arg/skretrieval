@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.15...3.26)
 
 project(
   ${SKBUILD_PROJECT_NAME}
-  VERSION ${SKBUILD_PROJECT_VERSION}
   LANGUAGES CXX)
 
 add_library(skretrievalBuildProperties INTERFACE)
@@ -43,6 +42,5 @@ else()
 endif()
 
 target_link_libraries(_core PUBLIC skretrievalBuildProperties)
-target_compile_definitions(_core PRIVATE VERSION_INFO=${PROJECT_VERSION})
 
 install(TARGETS _core DESTINATION skretrieval)

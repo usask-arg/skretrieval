@@ -30,6 +30,7 @@ requirements:
     - pip
     - eigen
     - scikit-build-core
+    - setuptools-scm
     - pybind11 >=2.10.0
     - llvm-openmp # [mac]
 
