@@ -50,5 +50,6 @@ test:
     - pytest tests
 
 about:
-  summary: An example project built with pybind11 and scikit-build.
+  home: https://github.com/usask-arg/sasktran2
+  summary: The University of Saskatchewan Retrieval Framework
   license_file: ../license.md

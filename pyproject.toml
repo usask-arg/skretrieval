@@ -1,11 +1,11 @@
 [build-system]
-requires = ["scikit-build-core>=0.3.3", "pybind11"]
+requires = ["scikit-build-core>=0.3.3", "pybind11", "setuptools-scm>=8.0"]
 build-backend = "scikit_build_core.build"
 
 
 [project]
 name = "skretrieval"
-version = "0.0.1"
+dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 dependencies = ['numpy', 'xarray']
@@ -15,13 +15,14 @@ authors = [
 requires-python = ">=3.7"
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
+    "License :: Free for non-commerical use",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
 ]
 
 [project.optional-dependencies]
@@ -30,7 +31,11 @@ test = ["pytest"]
 
 [tool.scikit-build]
 wheel.expand-macos-universal-tags = true
+metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
+sdist.include = ["src/skretrieval/_version.py"]
 
+[tool.setuptools_scm]
+write_to = "src/skretrieval/_version.py"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -95,6 +100,7 @@ src = ["src"]
 unfixable = [
     "T20",  # Removes print statements
     "F841", # Removes unused variables
+    "F401", # Removes unused imports
 ]
 flake8-unused-arguments.ignore-variadic-names = true
 isort.required-imports = ["from __future__ import annotations"]
