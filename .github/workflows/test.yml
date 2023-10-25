@@ -39,9 +39,11 @@ jobs:
             python=${{matrix.python-version}}
       
       - name: Install skretrieval
+        shell: bash -el {0}
         run: |
           python -m pip install -e .
 
       - name: run pytests
+        shell: bash -el {0}
         run: |
           python -m pytest -v tests/

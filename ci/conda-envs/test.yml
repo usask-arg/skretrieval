@@ -6,3 +6,4 @@ dependencies:
   - numpy
   - xarray
   - sasktran2
+  - pytest
