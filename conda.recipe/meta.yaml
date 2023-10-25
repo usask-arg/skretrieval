@@ -15,30 +15,17 @@ build:
   number: {{ describe_number }}
   string: {{ describe_hash }}
   script:
-    - {{ PYTHON }} -m pip install . -vvv
+    - {{ PYTHON }} -m pip install . --no-deps -vvv
 
 requirements:
-  build:
-    - cmake >=3.5
-    - python                                 # [build_platform != target_platform]
-    - cross-python_{{ target_platform }}     # [build_platform != target_platform]
-    - {{ compiler('cxx') }}
-    - {{ compiler('fortran') }} # [not win]
-
   host:
-    - python {{ python }}
+    - python >= 3.10
     - pip
-    - eigen
-    - scikit-build-core
     - setuptools-scm
-    - pybind11 >=2.10.0
-    - llvm-openmp # [mac]
-
   run:
-    - python {{ python }}
+    - python >= 3.10
     - numpy
-    - llvm-openmp # [mac]
-
+    - xarray
 
 test:
   imports:

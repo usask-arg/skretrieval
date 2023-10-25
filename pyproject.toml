@@ -1,7 +1,6 @@
 [build-system]
-requires = ["scikit-build-core>=0.3.3", "pybind11", "setuptools-scm>=8.0"]
-build-backend = "scikit_build_core.build"
-
+requires = ["setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "skretrieval"
@@ -17,9 +16,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "License :: Free for non-commerical use",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -27,12 +23,6 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest"]
-
-
-[tool.scikit-build]
-wheel.expand-macos-universal-tags = true
-metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
-sdist.include = ["src/skretrieval/_version.py"]
 
 [tool.setuptools_scm]
 write_to = "src/skretrieval/_version.py"
@@ -46,25 +36,6 @@ filterwarnings = [
     "ignore:(ast.Str|Attribute s|ast.NameConstant|ast.Num) is deprecated:DeprecationWarning:_pytest",  # Python 3.12
 ]
 testpaths = ["tests"]
-
-
-[tool.cibuildwheel]
-test-command = "pytest {project}/tests"
-test-extras = ["test"]
-test-skip = ["*universal2:arm64"]
-build-verbosity = 1
-
-[[tool.cibuildwheel.overrides]]
-select = "cp36-*"
-
-[tool.cibuildwheel.linux]
-archs = "native"
-
-[tool.cibuildwheel.macos]
-archs = "x86_64 arm64"
-
-[tool.cibuildwheel.windows]
-archs = "native"
 
 [tool.ruff]
 select = [
