@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import numpy as np
 from scipy.sparse import lil_matrix
 
@@ -22,17 +20,23 @@ def two_dim_vertical_second_deriv(numangle, numalt, factor=1, sparse=False):
     """
 
     n = numalt * numangle
-    gamma = lil_matrix((n, n)) if sparse else np.zeros((n, n))
-    for idangle in range(numangle):
+    if sparse:
+        gamma = lil_matrix((n, n))
+    else:
+        gamma = np.zeros((n, n))
+    for idangle in range(0, numangle):
         for idalt in range(1, numalt - 1):
-            mfactor = factor[idalt] if np.shape(factor) != () else factor
+            if np.shape(factor) != ():
+                mfactor = factor[idalt]
+            else:
+                mfactor = factor
             idx = idangle * numalt + idalt
             gamma[idx, idx - 1] = -1 / 4 * mfactor
             gamma[idx, idx] = 1 / 2 * mfactor
             gamma[idx, idx + 1] = -1 / 4 * mfactor
 
     if sparse:
-        gamma = gamma.asformat("csr")
+        gamma = gamma.asformat('csr')
 
     return gamma
 
@@ -55,16 +59,22 @@ def two_dim_vertical_first_deriv(numangle, numalt, factor=1, sparse=False):
     """
 
     n = numalt * numangle
-    gamma = lil_matrix((n, n)) if sparse else np.zeros((n, n))
-    for idangle in range(numangle):
-        for idalt in range(numalt - 1):
-            mfactor = factor[idalt] if np.shape(factor) != () else factor
+    if sparse:
+        gamma = lil_matrix((n, n))
+    else:
+        gamma = np.zeros((n, n))
+    for idangle in range(0, numangle):
+        for idalt in range(0, numalt - 1):
+            if np.shape(factor) != ():
+                mfactor = factor[idalt]
+            else:
+                mfactor = factor
             idx = idangle * numalt + idalt
             gamma[idx, idx] = -1 / 2 * mfactor
             gamma[idx, idx + 1] = 1 / 2 * mfactor
 
     if sparse:
-        gamma = gamma.asformat("csr")
+        gamma = gamma.asformat('csr')
 
     return gamma
 
@@ -87,7 +97,10 @@ def two_dim_horizontal_second_deriv(numangle, numalt, factor=1, sparse=False):
     """
 
     n = numalt * numangle
-    gamma = lil_matrix((n, n)) if sparse else np.zeros((n, n))
+    if sparse:
+        gamma = lil_matrix((n, n))
+    else:
+        gamma = np.zeros((n, n))
     for idx in range(numalt, n - numalt):
         if np.shape(factor) != ():
             horiz = int(idx / numalt)
@@ -97,7 +110,7 @@ def two_dim_horizontal_second_deriv(numangle, numalt, factor=1, sparse=False):
         gamma[idx, idx - numalt] = -1 / 4 * mfactor
         gamma[idx, idx] = 1 / 2 * mfactor
         gamma[idx, idx + numalt] = -1 / 4 * mfactor
-
+    
     if sparse:
         # Convert gamma to CSR format for faster matrix operations
         gamma = gamma.asformat("csr")

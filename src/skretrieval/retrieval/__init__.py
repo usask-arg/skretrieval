@@ -1,9 +1,5 @@
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
-
 import numpy as np
-
 from skretrieval.core.radianceformat import RadianceBase
 
 
@@ -12,7 +8,6 @@ class ForwardModel(ABC):
     A ForwardModel is an object which is capable of calculating a radiance.  This serves as the primary interface
     to the retrieval, along with the RetrievalTarget.
     """
-
     @abstractmethod
     def calculate_radiance(self):
         pass
@@ -23,7 +18,6 @@ class RetrievalTarget(ABC):
     The retrieval target defines the parameter that is to be retrieved, and also what measurements are going to be
     used to retrieve it.  Notation is similar to that of Rodgers.
     """
-
     @abstractmethod
     def state_vector(self):
         """
@@ -32,6 +26,7 @@ class RetrievalTarget(ABC):
         np.array
             The state vector, x
         """
+        pass
 
     @abstractmethod
     def measurement_vector(self, l1_data: RadianceBase):
@@ -49,6 +44,7 @@ class RetrievalTarget(ABC):
             Keys 'y' for the measurement vector, 'jacobian' for the jacobian of the measurement vector (if weighting
             functions are in l1_data, 'y_error' the covariance of 'y' (if error information is provided in l1_data)
         """
+        pass
 
     @abstractmethod
     def update_state(self, x: np.ndarray):
@@ -62,6 +58,7 @@ class RetrievalTarget(ABC):
         x: np.array
             New state vector
         """
+        pass
 
     @abstractmethod
     def apriori_state(self) -> np.array:
@@ -71,6 +68,7 @@ class RetrievalTarget(ABC):
         np.array
             Apriori state vector, x_a.  If no apriori is used return None
         """
+        pass
 
     @abstractmethod
     def inverse_apriori_covariance(self):
@@ -80,8 +78,8 @@ class RetrievalTarget(ABC):
         np.array
             Inverse of the apriori covariance matrix.  If no apriori is used return None.
         """
+        pass
 
-    @abstractmethod
     def initialize(self, forward_model: ForwardModel, meas_l1: RadianceBase):
         """
         Called at the beginning of the retrieval and can be used to initialize parameters
@@ -92,6 +90,7 @@ class RetrievalTarget(ABC):
         meas_l1
 
         """
+        pass
 
     @staticmethod
     def state_vector_allowed_to_change():
@@ -113,15 +112,7 @@ class RetrievalTarget(ABC):
         """
         return False
 
-    def adjust_parameters(
-        self,
-        forward_model,  # noqa: ARG002
-        y_dict,  # noqa: ARG002
-        chi_sq,  # noqa: ARG002
-        chi_sq_linear,  # noqa: ARG002
-        iter_idx,  # noqa: ARG002
-        predicted_delta_y,  # noqa: ARG002
-    ):
+    def adjust_parameters(self, forward_model, y_dict, chi_sq, chi_sq_linear, iter_idx, predicted_delta_y):
         return None
 
 
@@ -129,14 +120,8 @@ class Minimizer(ABC):
     """
     A class which performs minimization between some aspect of measurement level1 data and the forward model simulations.
     """
-
     @abstractmethod
-    def retrieve(
-        self,
-        measurement_l1: RadianceBase,
-        forward_model: ForwardModel,
-        retrieval_target: RetrievalTarget,
-    ):
+    def retrieve(self, measurement_l1: RadianceBase, forward_model: ForwardModel, retrieval_target: RetrievalTarget):
         """
 
         Parameters
@@ -153,3 +138,4 @@ class Minimizer(ABC):
         dict
             Various parameters specific to the minimizer
         """
+        pass

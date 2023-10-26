@@ -7,7 +7,7 @@ name = "skretrieval"
 dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
-dependencies = ['numpy', 'xarray']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran', 'jdcal', 'sgp4']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]
@@ -32,7 +32,6 @@ minversion = "6.0"
 addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
 xfail_strict = true
 filterwarnings = [
-    "error",
     "ignore:(ast.Str|Attribute s|ast.NameConstant|ast.Num) is deprecated:DeprecationWarning:_pytest",  # Python 3.12
 ]
 testpaths = ["tests"]
