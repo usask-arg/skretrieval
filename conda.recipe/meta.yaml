@@ -29,6 +29,7 @@ requirements:
     - sgp4
     - scipy
     - jdcal
+    - astropy
     - numba
 
 test:
