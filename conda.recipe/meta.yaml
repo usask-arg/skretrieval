@@ -11,7 +11,7 @@ source:
   git_url: ../
 
 build:
-  binary_relocation: true
+  noarch: python
   number: {{ describe_number }}
   string: py_{{ py_version}}_{{ describe_hash }}_{{ describe_number }}
   script:
