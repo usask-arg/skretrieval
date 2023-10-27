@@ -1,7 +1,11 @@
-from typing import Union
+from __future__ import annotations
+
+from datetime import datetime
+
 import numpy as np
-from datetime import datetime, timedelta
+
 import skretrieval.time
+
 from .satellitebase import SatelliteBase
 from .satellitekepler import SatelliteKepler
 from .satellitesgp4 import SatelliteSGP4
@@ -20,7 +24,13 @@ class SatelliteSunSync(SatelliteBase):
     a period of days and months.
     """
 
-    def __init__(self, utc: Union[np.datetime64, datetime, float, str], orbittype='sgp4', sgp4_bstar_drag=0.0, **kwargs):
+    def __init__(
+        self,
+        utc: np.datetime64 | (datetime | (float | str)),
+        orbittype="sgp4",
+        sgp4_bstar_drag=0.0,
+        **kwargs,
+    ):
         """
 
         Parameters
@@ -74,7 +84,9 @@ class SatelliteSunSync(SatelliteBase):
         super().__init__()
         ut = skretrieval.time.ut_to_datetime(utc)
         self.satellite = None
-        self.set_sun_sync_from_elements(ut, orbittype=orbittype, sgp4_bstar_drag=sgp4_bstar_drag, **kwargs)
+        self.set_sun_sync_from_elements(
+            ut, orbittype=orbittype, sgp4_bstar_drag=sgp4_bstar_drag, **kwargs
+        )
 
     # -----------------------------------------------------------------------------
     #           update_eci_position
@@ -91,7 +103,9 @@ class SatelliteSunSync(SatelliteBase):
             Updates the ECI eci-position and ECI eci-velocity of the satellite to this time
         """
         self.satellite.update_eci_position(tnow)
-        self._set_current_state(self.satellite.eciposition(), self.satellite.ecivelocity(), tnow)
+        self._set_current_state(
+            self.satellite.eciposition(), self.satellite.ecivelocity(), tnow
+        )
 
     # ------------------------------------------------------------------------------
     #           period
@@ -119,11 +133,13 @@ class SatelliteSunSync(SatelliteBase):
     #           set_sun_sync_from_elements
     # -----------------------------------------------------------------------------
 
-    def set_sun_sync_from_elements(self,
-                                   utc: datetime,
-                                   orbittype: str = 'sgp4',
-                                   sgp4_bstar_drag: float = 0.0,
-                                   **kwargs):
+    def set_sun_sync_from_elements(
+        self,
+        utc: datetime,
+        orbittype: str = "sgp4",
+        sgp4_bstar_drag: float = 0.0,
+        **kwargs,
+    ):
         """
         Defines the sun-synchronous orbit using Keplerian orbital elements. The sun-synchronous orbit is always
         kick-started using a Kepler based orbit and it can continue to use that kepler orbit to propagate the position
@@ -152,11 +168,12 @@ class SatelliteSunSync(SatelliteBase):
         """
 
         kepler = SatelliteKepler(utc, inclination_is_sun_sync=True, **kwargs)
-        if orbittype.lower() == 'kepler':
+        if orbittype.lower() == "kepler":
             self.satellite = kepler
-        elif orbittype.lower() == 'sgp4':
+        elif orbittype.lower() == "sgp4":
             sgp4 = SatelliteSGP4()
             sgp4.from_kepler_orbit(kepler, bstar=sgp4_bstar_drag)
             self.satellite = sgp4
         else:
-            raise Exception('the requested type of orbit predictor {} is not supported'.format(orbittype))
+            msg = f"the requested type of orbit predictor {orbittype} is not supported"
+            raise Exception(msg)

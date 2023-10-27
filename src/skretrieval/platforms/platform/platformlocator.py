@@ -1,11 +1,12 @@
-from typing import Tuple, Union
-from abc import ABC, abstractmethod
+from __future__ import annotations
+
 import logging
-import numpy as np
+from abc import ABC, abstractmethod
 from datetime import datetime
 
+import numpy as np
+from astropy import units
 from astropy.coordinates import EarthLocation
-from astropy import units as units
 
 
 # ------------------------------------------------------------------------------
@@ -30,19 +31,8 @@ class PlatformLocation(ABC):
         #. :attr:`~.PlatformLocation.lat_lon_height`.
     """
 
-    # -----------------------------------------------------------------------------
-    #           __init__
-    # -----------------------------------------------------------------------------
-
-    def __init__(self):
-        pass
-
-    # ------------------------------------------------------------------------------
-    #           update_position
-    # ------------------------------------------------------------------------------
-
     @abstractmethod
-    def update_position(self, utc: Union[datetime, np.datetime64]) -> Union[np.ndarray, None]:
+    def update_position(self, utc: datetime | np.datetime64) -> np.ndarray | None:
         """
         Updates the geographic geocentric location of the platform at the given coordinated universal time and returns the
         new position. This is an abstract method and must be implemented in derived child classes.
@@ -57,7 +47,9 @@ class PlatformLocation(ABC):
         np.ndarray, Array[3]
             The three element X,Y,Z geographic geocentric location of the platform
         """
-        logging.warning("PlatformLocation.update_position, you are calling the base method which does nothing. You probably want to call the method in a derived class.")
+        logging.warning(
+            "PlatformLocation.update_position, you are calling the base method which does nothing. You probably want to call the method in a derived class."
+        )
         return None
         # raise Exception("Do not call base class method")
 
@@ -66,7 +58,7 @@ class PlatformLocation(ABC):
     # ------------------------------------------------------------------------------
 
     @abstractmethod
-    def update_velocity(self, utc: Union[datetime, np.datetime64]) -> Union[np.ndarray, None]:
+    def update_velocity(self, utc: datetime | np.datetime64) -> np.ndarray | None:
         """
         Updates the geographic geocentric location of the platform at the given coordinated universal time and returns the
         new position. This is an abstract method and must be implemented in derived child classes.
@@ -82,19 +74,20 @@ class PlatformLocation(ABC):
             The three element X,Y,Z geographic geocentric location of the platform
         """
         tnow = np.datetime64(utc)
-        dt = np.timedelta64(1.0, 's')
+        dt = np.timedelta64(1.0, "s")
         t1 = tnow + dt
         p0 = self.update_position(utc)
         p1 = self.update_position(t1)
-        v = (p1 - p0)
-        return v
+        return p1 - p0
 
     # ------------------------------------------------------------------------------
     #           update_orientation
     # ------------------------------------------------------------------------------
 
     @abstractmethod
-    def update_orientation(self, utc: Union[datetime, np.datetime64]) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray], None]:
+    def update_orientation(
+        self, utc: datetime | np.datetime64
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """
         Updates the orientation of the  at the given time and retursn an x,y,z ITRF unit vector.
 
@@ -109,7 +102,9 @@ class PlatformLocation(ABC):
             A three element storing X,Y,Z unit vectors of the platform orientation. Returns None if there is an issue
             fetching the pointing data at the given time.
         """
-        logging.warning("PlatformLocation.update_orientation, you are calling the base method which does nothing. You probably want to call the method in a derived class.")
+        logging.warning(
+            "PlatformLocation.update_orientation, you are calling the base method which does nothing. You probably want to call the method in a derived class."
+        )
         return None
 
     # ------------------------------------------------------------------------------
@@ -127,7 +122,8 @@ class PlatformLocation(ABC):
         np.ndarray(3,)
             A three element array storing the X,Y,Z geocentric location (ITRF ecef, wgs84) of the platform. All numbers are in meters.
         """
-        raise Exception("Do not call base class method")
+        msg = "Do not call base class method"
+        raise Exception(msg)
 
     # -----------------------------------------------------------------------------
     #           earth_location
@@ -173,12 +169,12 @@ class PlatformLocation(ABC):
     @abstractmethod
     def velocity(self) -> np.ndarray:
         """
-         Returns the geocentric velocity calculated in the last call to :meth:`~.PlatformLocation.update_position`.
-         This may be implemented in derived child classes to override the default method which returns an array of zeros,
+        Returns the geocentric velocity calculated in the last call to :meth:`~.PlatformLocation.update_position`.
+        This may be implemented in derived child classes to override the default method which returns an array of zeros,
 
-         Returns
-         -------
-         np.ndarray, Array[3,]
-             The three element X,Y,Z geographic geocentric velocity of the platform. All numbers are in meters/second.
-         """
+        Returns
+        -------
+        np.ndarray, Array[3,]
+            The three element X,Y,Z geographic geocentric velocity of the platform. All numbers are in meters/second.
+        """
         return np.zeros([3])

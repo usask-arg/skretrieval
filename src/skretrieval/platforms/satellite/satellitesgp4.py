@@ -1,10 +1,14 @@
-from typing import Tuple
-from math import pi
-import numpy as np
+from __future__ import annotations
+
 from datetime import datetime, timedelta
-import skretrieval.time
+from math import pi
+
+import numpy as np
 from sgp4.earth_gravity import wgs84
 from sgp4.io import twoline2rv
+
+import skretrieval.time
+
 from .satellitebase import SatelliteBase
 from .satellitekepler import SatelliteKepler
 
@@ -18,7 +22,7 @@ class SatelliteSGP4(SatelliteBase):
     from PyPi
     """
 
-    def __init__(self, twolines: Tuple[str, str] = None):
+    def __init__(self, twolines: tuple[str, str] | None = None):
         """
         Creates and initializes the sgp4 orbit predictor using two line elements provided by the user. The lines must be in the
         promper two line format. It is possible to leave the lines as None and initialize the predictor after creation.
@@ -32,7 +36,7 @@ class SatelliteSGP4(SatelliteBase):
         """
         super().__init__()
         self.m_sgp4 = None
-        if (twolines is not None):
+        if twolines is not None:
             self.from_twoline_elements(twolines[0], twolines[1])
 
     # -----------------------------------------------------------------------------
@@ -82,8 +86,10 @@ class SatelliteSGP4(SatelliteBase):
         """
         self.m_sgp4 = twoline2rv(line1, line2, wgs84)
 
-        orbit_number = int(line2[63:63 + 5])  # Get the orbit number of this orbit.
-        self.set_orbit_number_from_last_equator_crossing(orbit_number, self.m_sgp4.epoch)
+        orbit_number = int(line2[63 : 63 + 5])  # Get the orbit number of this orbit.
+        self.set_orbit_number_from_last_equator_crossing(
+            orbit_number, self.m_sgp4.epoch
+        )
         self.update_eci_position(self.m_sgp4.epoch)
 
     # ---------------------------------------------------------------------------
@@ -99,9 +105,10 @@ class SatelliteSGP4(SatelliteBase):
         float
             The orbital period in seconds
         """
-        mean_motion = self.m_sgp4.no / 60.0           # Convert sgp4 mean motion from radians/minute to radians per second
-        p = timedelta(seconds=2.0 * pi / mean_motion)
-        return p
+        mean_motion = (
+            self.m_sgp4.no / 60.0
+        )  # Convert sgp4 mean motion from radians/minute to radians per second
+        return timedelta(seconds=2.0 * pi / mean_motion)
 
     # -----------------------------------------------------------------------------
     #           eccentricity
@@ -115,10 +122,18 @@ class SatelliteSGP4(SatelliteBase):
     # --------------------------------------------------------------------------
 
     def update_eci_position(self, autc: datetime):
-
         utc = skretrieval.time.ut_to_datetime(autc)
-        if (self._m_time is None) or (utc != self._m_time):         # Do we need to update eciposition or is it already the cached value
-            r, v = self.m_sgp4.propagate(year=utc.year, month=utc.month, day=utc.day, hour=utc.hour, minute=utc.minute, second=(utc.second + utc.microsecond / 1.0E6))
+        if (self._m_time is None) or (
+            utc != self._m_time
+        ):  # Do we need to update eciposition or is it already the cached value
+            r, v = self.m_sgp4.propagate(
+                year=utc.year,
+                month=utc.month,
+                day=utc.day,
+                hour=utc.hour,
+                minute=utc.minute,
+                second=(utc.second + utc.microsecond / 1.0e6),
+            )
             pos = np.array(r) * 1000.0
             vel = np.array(v) * 1000.0
             self._set_current_state(pos, vel, utc)

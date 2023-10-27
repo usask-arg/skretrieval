@@ -1,9 +1,12 @@
-import numpy as np
-import time
+from __future__ import annotations
+
 import logging
+import time
+
+import numpy as np
 
 
-class Timer(object):
+class Timer:
     """
     Simple wrapper to time things easier.
     """
@@ -17,7 +20,8 @@ class Timer(object):
     def __exit__(self, type, value, traceback):
         if self.name:
             logging.info(self.name)
-        logging.info('Elapsed: ' + str(time.time() - self.tstart) + 's')
+        msg = "Elapsed: " + str(time.time() - self.tstart) + "s"
+        logging.info(msg)
 
 
 def rotation_matrix(axis, angle):
@@ -63,14 +67,16 @@ def linear_interpolating_matrix(from_grid: np.array, to_grid: np.array):
             if idx_above == 0:
                 idx_above = 1
                 interp_ele = from_grid[0]
-        except:
+        except Exception as _:
             idx_above = len(from_grid)
             interp_ele = from_grid[0]
 
         if idx_above == len(from_grid):
             M[idx, idx_above - 1] = 1
         else:
-            w = (from_grid[idx_above] - interp_ele) / (from_grid[idx_above] - from_grid[idx_above - 1])
+            w = (from_grid[idx_above] - interp_ele) / (
+                from_grid[idx_above] - from_grid[idx_above - 1]
+            )
             M[idx, idx_above] = 1 - w
             M[idx, idx_above - 1] = w
 

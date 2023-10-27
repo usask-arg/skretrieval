@@ -1,18 +1,18 @@
+from __future__ import annotations
+
+import abc
+
 import numpy as np
 from scipy.linalg import block_diag
 
 from skretrieval.core.radianceformat import RadianceBase
 from skretrieval.retrieval import RetrievalTarget
-from skretrieval.retrieval.statevector import StateVectorElement, StateVector
-from typing import Iterable
-import abc
+from skretrieval.retrieval.statevector import StateVector
 
 
 class GenericTarget(RetrievalTarget):
     def measurement_vector(self, l1_data: RadianceBase):
-        y = self._internal_measurement_vector(l1_data)
-
-        return y
+        return self._internal_measurement_vector(l1_data)
 
     @abc.abstractmethod
     def _internal_measurement_vector(self, l1_data: RadianceBase):
@@ -26,7 +26,9 @@ class GenericTarget(RetrievalTarget):
         return np.concatenate(vec)
 
     def update_state(self, x: np.ndarray):
-        for state_element, state_slice in zip(self._state_vector.state_elements, self._state_slices):
+        for state_element, state_slice in zip(
+            self._state_vector.state_elements, self._state_slices
+        ):
             state_element.update_state(x[state_slice])
 
     def apriori_state(self) -> np.array:

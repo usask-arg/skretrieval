@@ -1,8 +1,11 @@
+from __future__ import annotations
+
+from copy import copy
+
 import numpy as np
 import xarray as xr
 
 from skretrieval.retrieval.statevector import StateVectorElement
-from copy import copy
 
 
 class RadianceShift(StateVectorElement):
@@ -10,10 +13,10 @@ class RadianceShift(StateVectorElement):
         return [copy(self._shift_nm)]
 
     def name(self) -> str:
-        return 'wavelength_shift'
+        return "wavelength_shift"
 
     def propagate_wf(self, radiance) -> np.ndarray:
-        x = 5
+        pass
 
     def update_state(self, x: np.array):
         self._shift_nm = copy(float(x))

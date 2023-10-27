@@ -1,22 +1,34 @@
+from __future__ import annotations
+
+import abc
+from collections import defaultdict
+from copy import copy
+
 import numpy as np
 import sasktran as sk
-import abc
-from copy import copy
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
-from collections import defaultdict
-from typing import List
 
 from skretrieval.core.radianceformat import RadianceBase
 from skretrieval.retrieval import RetrievalTarget
+from skretrieval.retrieval.tikhonov import (
+    two_dim_horizontal_second_deriv,
+    two_dim_vertical_second_deriv,
+)
 from skretrieval.tomography.grids import OrbitalPlaneGrid
-from skretrieval.retrieval.tikhonov import two_dim_horizontal_second_deriv, two_dim_vertical_second_deriv, two_dim_vertical_first_deriv
 
 
 class TwoDimTarget(RetrievalTarget):
-    def __init__(self, species: List[sk.Species], grid: OrbitalPlaneGrid, state_vector_space: List[str], horiz_tikh_factor=0, vert_tikh_factor=0,
-                 use_apriori_for_bounds=True,
-                 apriori_influence=None):
+    def __init__(
+        self,
+        species: list[sk.Species],
+        grid: OrbitalPlaneGrid,
+        state_vector_space: list[str],
+        horiz_tikh_factor=0,
+        vert_tikh_factor=0,
+        use_apriori_for_bounds=True,
+        apriori_influence=None,
+    ):
         """
         A generic two dimensional retrieval target.  This class implements the two-dimensional nature of the retrieval,
         derived classes implement the species specific retrieval information.
@@ -78,16 +90,16 @@ class TwoDimTarget(RetrievalTarget):
         alt_idx = (grid_alts >= lowerbound) & (grid_alts <= upperbound)
 
         state_values = []
-        for clim, species in zip(self._internal_climatology(), self._internal_species_id()):
+        for clim, species in zip(
+            self._internal_climatology(), self._internal_species_id()
+        ):
             state_values.append(copy(clim[species])[:, alt_idx])  # numangle, numalt
 
         for idspecies in range(len(self._internal_climatology())):
-            if self._state_vector_space[idspecies] == 'log':
+            if self._state_vector_space[idspecies] == "log":
                 state_values[idspecies] = np.log(state_values[idspecies])
 
-        concat_state = np.concatenate([state_value.flatten() for state_value in state_values])
-
-        return concat_state
+        return np.concatenate([state_value.flatten() for state_value in state_values])
 
     def _species_state_vector(self, idspecies):
         """
@@ -96,7 +108,7 @@ class TwoDimTarget(RetrievalTarget):
         x = self.state_vector()
         len_species = int(len(x) / len(self._internal_climatology()))
 
-        return x[idspecies * len_species:(idspecies + 1) * len_species]
+        return x[idspecies * len_species : (idspecies + 1) * len_species]
 
     def state_vector_bounded_mask(self, mask=True):
         """
@@ -126,14 +138,17 @@ class TwoDimTarget(RetrievalTarget):
 
             if self._grid.is_extended(grid_index):
                 if grid_index <= self._grid.numextended:
-                    x_mask[grid_index, :] = numalt * (self._grid.numextended) + np.arange(0, len(self.state_altitudes()))
+                    x_mask[grid_index, :] = numalt * (
+                        self._grid.numextended
+                    ) + np.arange(0, len(self.state_altitudes()))
                 else:
-                    x_mask[grid_index, :] = numalt * (numangle - self._grid.numextended) + np.arange(0, len(self.state_altitudes()))
+                    x_mask[grid_index, :] = numalt * (
+                        numangle - self._grid.numextended
+                    ) + np.arange(0, len(self.state_altitudes()))
 
         if mask:
             return ~np.isnan(x_mask.flatten())
-        else:
-            return x_mask.flatten()
+        return x_mask.flatten()
 
     def zero_apriori_from_mask(self, gamma):
         """
@@ -144,24 +159,23 @@ class TwoDimTarget(RetrievalTarget):
 
         # Any row of gamma that has contribution from a bounded value should be zero'd out
         row_contrib = np.abs(gamma) @ (bounded_mask).astype(int)
-        new_gamma = gamma.asformat('lil')
+        new_gamma = gamma.asformat("lil")
         new_gamma[row_contrib > 0, :] = 0
 
-        return new_gamma.asformat('csr')
+        return new_gamma.asformat("csr")
 
     def scale_apriori(self, gamma, idspecies):
         """
         Scales a tikhonov regularization matrix by the state vector
         """
-        if self._state_vector_space[idspecies] == 'log':
+        if self._state_vector_space[idspecies] == "log":
             return gamma
-        else:
-            x = self._species_state_vector(idspecies)
-            x = sparse.diags(1 / x)
-            return gamma * x
+        x = self._species_state_vector(idspecies)
+        x = sparse.diags(1 / x)
+        return gamma * x
 
     def measurement_vector(self, l1_data: RadianceBase):
-        output = defaultdict(lambda: [])
+        output = defaultdict(list)
 
         for image_idx in range(l1_data.num_images):
             image_l1 = l1_data.image_radiance(image_idx, dense_wf=True)
@@ -174,29 +188,29 @@ class TwoDimTarget(RetrievalTarget):
                 else:
                     output[key].append(sparse.csc_matrix(item))
 
-        y_lengths = [len(y) for y in output['y']]
-        output['y_image_lengths'] = y_lengths
+        y_lengths = [len(y) for y in output["y"]]
+        output["y_image_lengths"] = y_lengths
 
         for key, item in output.items():
             if sparse.issparse(item[0]):
                 output[key] = sparse.vstack(item)
             else:
-                if hasattr(item[0], 'shape') and len(item[0].shape) == 1:
+                if hasattr(item[0], "shape") and len(item[0].shape) == 1:
                     output[key] = np.concatenate(item)
                 else:
                     output[key] = np.vstack(item)
 
-        if 'jacobian' in output:
+        if "jacobian" in output:
             diags = []
             for idspecies in range(len(self._internal_climatology())):
                 x = np.exp(self._species_state_vector(idspecies))
-                if self._state_vector_space[idspecies] == 'log':
+                if self._state_vector_space[idspecies] == "log":
                     diags.append(x)
                 else:
                     diags.append(np.ones_like(x))
             diags = np.concatenate(diags)
             x = sparse.diags(diags)
-            output['jacobian'] = (output['jacobian'] * x).asformat('csc')
+            output["jacobian"] = (output["jacobian"] * x).asformat("csc")
 
         return output
 
@@ -204,21 +218,32 @@ class TwoDimTarget(RetrievalTarget):
         current_state = self.state_vector()
         num_species = len(self._internal_climatology())
 
-        for idspecies, (clim, species, cur_state, new_x) in enumerate(zip(self._internal_climatology(), self._internal_species_id(), np.split(current_state, num_species), np.split(x, num_species))):
+        for idspecies, (clim, species, cur_state, new_x) in enumerate(
+            zip(
+                self._internal_climatology(),
+                self._internal_species_id(),
+                np.split(current_state, num_species),
+                np.split(x, num_species),
+            )
+        ):
             current_state_resized = cur_state.reshape((self._grid.numhoriz, -1))
             new_state = new_x.reshape((self._grid.numhoriz, -1))
 
-            if self._state_vector_space[idspecies] == 'log':
+            if self._state_vector_space[idspecies] == "log":
                 current_state_resized = np.exp(current_state_resized)
                 new_state = np.exp(new_state)
 
             mult_factor = new_state / current_state_resized
             if self._max_change_factor is not None:
-                mult_factor[mult_factor > self._max_change_factor] = self._max_change_factor
-                mult_factor[mult_factor < 1 / self._max_change_factor] = 1 / self._max_change_factor
+                mult_factor[
+                    mult_factor > self._max_change_factor
+                ] = self._max_change_factor
+                mult_factor[mult_factor < 1 / self._max_change_factor] = (
+                    1 / self._max_change_factor
+                )
 
             ret_alts = self.state_altitudes()
-            all_mult_factors = np.ones_like((clim[species]))
+            all_mult_factors = np.ones_like(clim[species])
             for idx in range(self._grid.numhoriz):
                 if not self._use_apriori_for_bounds:
                     good_low_alt = self._lower_retrieval_bound(idx)
@@ -227,9 +252,21 @@ class TwoDimTarget(RetrievalTarget):
                     good_high_alt = self._upper_retrieval_bound(idx)
                     high_idx = np.nonzero(ret_alts > good_high_alt)[0][0]
 
-                    all_mult_factors[idx, :] = np.interp(self._grid.altitudes, ret_alts[low_idx:high_idx], mult_factor[idx, low_idx:high_idx], left=mult_factor[idx, low_idx], right=mult_factor[idx, high_idx])
+                    all_mult_factors[idx, :] = np.interp(
+                        self._grid.altitudes,
+                        ret_alts[low_idx:high_idx],
+                        mult_factor[idx, low_idx:high_idx],
+                        left=mult_factor[idx, low_idx],
+                        right=mult_factor[idx, high_idx],
+                    )
                 else:
-                    all_mult_factors[idx, :] = np.interp(self._grid.altitudes, ret_alts, mult_factor[idx, :], left=mult_factor[idx, 0], right=mult_factor[idx, -1])
+                    all_mult_factors[idx, :] = np.interp(
+                        self._grid.altitudes,
+                        ret_alts,
+                        mult_factor[idx, :],
+                        left=mult_factor[idx, 0],
+                        right=mult_factor[idx, -1],
+                    )
             clim[species] *= all_mult_factors
 
     def _compute_apriori_parameters(self):
@@ -246,20 +283,26 @@ class TwoDimTarget(RetrievalTarget):
                 numalt = n // numangle
 
                 if self._horiz_tikh_factor is not None:
-                    gamma = two_dim_horizontal_second_deriv(numangle, numalt, self._horiz_tikh_factor, sparse=True)
+                    gamma = two_dim_horizontal_second_deriv(
+                        numangle, numalt, self._horiz_tikh_factor, sparse=True
+                    )
                     gamma = self.zero_apriori_from_mask(gamma)
                     gamma = self.scale_apriori(gamma, idspecies)
 
                     inv_S_a += gamma.T @ gamma
                 if self._vert_tikh_factor is not None:
-                    gamma = two_dim_vertical_second_deriv(numangle, numalt, self._vert_tikh_factor, sparse=True)
+                    gamma = two_dim_vertical_second_deriv(
+                        numangle, numalt, self._vert_tikh_factor, sparse=True
+                    )
                     gamma = self.zero_apriori_from_mask(gamma)
                     gamma = self.scale_apriori(gamma, idspecies)
 
                     inv_S_a += gamma.T @ gamma
 
                 if self._apriori_influence[idspecies] is not None:
-                    gamma = sparse.diags(np.ones(n) * self._apriori_influence[idspecies])
+                    gamma = sparse.diags(
+                        np.ones(n) * self._apriori_influence[idspecies]
+                    )
                     gamma = self.zero_apriori_from_mask(gamma)
                     gamma = self.scale_apriori(gamma, idspecies)
 
@@ -278,15 +321,19 @@ class TwoDimTarget(RetrievalTarget):
                         lower_bound_altitude = self._lower_retrieval_bound(grid_index)
 
                         # Bound above
-                        bounded_altitudes = self.state_altitudes() > upper_bound_altitude
+                        bounded_altitudes = (
+                            self.state_altitudes() > upper_bound_altitude
+                        )
                         first_idx = np.nonzero(bounded_altitudes)[0][0]
                         bounded_altitudes[first_idx - 1] = True
                         diagonal[grid_index, ~bounded_altitudes] = 0
                         off_diagonal[grid_index, ~bounded_altitudes] = 0
 
                         # Bound below
-                        bounded_altitudes = self.state_altitudes() < lower_bound_altitude
-                        last_idx = np.nonzero(~bounded_altitudes)[0][0]
+                        bounded_altitudes = (
+                            self.state_altitudes() < lower_bound_altitude
+                        )
+                        # last_idx = np.nonzero(~bounded_altitudes)[0][0]
                         # bounded_altitudes[last_idx] = True
 
                         diagonal[grid_index, bounded_altitudes] = 1
@@ -295,7 +342,12 @@ class TwoDimTarget(RetrievalTarget):
                         # Unlink the last point to the next angular point
                         diagonal[grid_index, -1] = 0
                         off_diagonal[grid_index, -1] = 0
-                    gamma = sparse.diags([diagonal.flatten(), off_diagonal.flatten()], offsets=[0, 1]) * high_factor
+                    gamma = (
+                        sparse.diags(
+                            [diagonal.flatten(), off_diagonal.flatten()], offsets=[0, 1]
+                        )
+                        * high_factor
+                    )
                     gamma = self.scale_apriori(gamma, idspecies)
                     inv_S_a_bounding += gamma.T @ gamma
                     self._vert_gamma = copy(gamma)
@@ -307,15 +359,18 @@ class TwoDimTarget(RetrievalTarget):
                         off_diagonal_horiz = np.zeros((numangle + 1, numalt))
 
                         # Forward difference from the left edge
-                        diagonal_horiz[:num_extended + 1, :] = high_factor
-                        off_diagonal_horiz[:num_extended + 1, :] = -high_factor
+                        diagonal_horiz[: num_extended + 1, :] = high_factor
+                        off_diagonal_horiz[: num_extended + 1, :] = -high_factor
 
                         # Forward difference from the right edge
-                        diagonal_horiz[-(num_extended + 1):-1, :] = high_factor
-                        off_diagonal_horiz[-(num_extended + 2):, :] = -high_factor
+                        diagonal_horiz[-(num_extended + 1) : -1, :] = high_factor
+                        off_diagonal_horiz[-(num_extended + 2) :, :] = -high_factor
 
-                        gamma_horiz = sparse.diags([diagonal_horiz.flatten(), off_diagonal_horiz.flatten()], [0, numalt],
-                                                   shape=((numangle + 1) * numalt, numalt * numangle))
+                        gamma_horiz = sparse.diags(
+                            [diagonal_horiz.flatten(), off_diagonal_horiz.flatten()],
+                            [0, numalt],
+                            shape=((numangle + 1) * numalt, numalt * numangle),
+                        )
 
                         gamma_horiz = self.scale_apriori(gamma_horiz, idspecies)
 
@@ -323,16 +378,22 @@ class TwoDimTarget(RetrievalTarget):
                         inv_S_a_bounding += gamma_horiz.T @ gamma_horiz
 
                     full_inv_S_a = inv_S_a + inv_S_a_bounding
-                    x_a_bounding = self.state_vector()[(idspecies * n):(idspecies + 1) * n]
-                    x_a = self._initial_state_vector[(idspecies * n):(idspecies + 1) * n]
+                    x_a_bounding = self.state_vector()[
+                        (idspecies * n) : (idspecies + 1) * n
+                    ]
+                    x_a = self._initial_state_vector[
+                        (idspecies * n) : (idspecies + 1) * n
+                    ]
 
-                    full_x_a = spsolve(full_inv_S_a, inv_S_a_bounding @ x_a_bounding + inv_S_a @ x_a)
+                    full_x_a = spsolve(
+                        full_inv_S_a, inv_S_a_bounding @ x_a_bounding + inv_S_a @ x_a
+                    )
                     all_x_a.append(full_x_a)
 
                     all_S_a.append(full_inv_S_a)
 
             self._x_a = np.concatenate(all_x_a)
-            self._inv_S_a = sparse.block_diag(all_S_a, format='csc')
+            self._inv_S_a = sparse.block_diag(all_S_a, format="csc")
         self._apriori_changed = False
 
     def apriori_state(self) -> np.array:
@@ -361,21 +422,18 @@ class TwoDimTarget(RetrievalTarget):
             Dictionary with keys 'y', and optionally 'y_error' and 'jacobian'.  Additional diagnostic keys may
             be included but are not used.
         """
-        pass
 
     @abc.abstractmethod
     def _lower_wf_bound(self):
         """
         Lower weighting function altitude in m
         """
-        pass
 
     @abc.abstractmethod
     def _upper_wf_bound(self):
         """
         Upper weighting function altitude in m
         """
-        pass
 
     @abc.abstractmethod
     def _upper_retrieval_bound(self, grid_index):
@@ -383,14 +441,12 @@ class TwoDimTarget(RetrievalTarget):
         Upper altitude in m at horizontal grid index grid_index
 
         """
-        pass
 
     @abc.abstractmethod
     def _lower_retrieval_bound(self, grid_index):
         """
         Lower altitude in m at horizontal grid index grid_index
         """
-        pass
 
     def wfwidths_and_alts(self):
         """
@@ -414,6 +470,4 @@ class TwoDimTarget(RetrievalTarget):
 
         alt_idx = (grid_alts >= lowerbound) & (grid_alts <= upperbound)
 
-        ret_alts = grid_alts[alt_idx]
-
-        return ret_alts
+        return grid_alts[alt_idx]

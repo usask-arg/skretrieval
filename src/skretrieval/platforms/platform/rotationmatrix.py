@@ -1,5 +1,7 @@
-from typing import Union, Tuple, List
+from __future__ import annotations
+
 import math
+
 import numpy as np
 
 
@@ -26,17 +28,29 @@ class RotationMatrix:
         """
         Returns the identity matrix, :math:`\\boldsymbol{IUnit}` as a 3x3 matrix
         """
-        return np.array([[1.0, 0.0, 0.0],  #: The rotation matiopn. By default it is the Unit matrix *"i.e. no effect"
-                         [0.0, 1.0, 0.0],
-                         [0.0, 0.0, 1.0]], dtype='float64')
+        return np.array(
+            [
+                [
+                    1.0,
+                    0.0,
+                    0.0,
+                ],  #: The rotation matiopn. By default it is the Unit matrix *"i.e. no effect"
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype="float64",
+        )
 
     # -----------------------------------------------------------------------------
     #           __init__
     # -----------------------------------------------------------------------------
 
-    def __init__(self, array: Union[List[List[float]], np.ndarray] = None):
-
-        self._R: np.ndarray = RotationMatrix.IUnit() if array is None else np.array(array, dtype='float64')            #: The rotation matiopn. By default it is the Unit Identity matrix *"i.e. no effect"
+    def __init__(self, array: list[list[float]] | np.ndarray = None):
+        self._R: np.ndarray = (
+            RotationMatrix.IUnit()
+            if array is None
+            else np.array(array, dtype="float64")
+        )  #: The rotation matiopn. By default it is the Unit Identity matrix *"i.e. no effect"
 
     # -----------------------------------------------------------------------------
     #           property R
@@ -62,7 +76,9 @@ class RotationMatrix:
     #           from_transform_to_destination
     # -----------------------------------------------------------------------------
 
-    def from_transform_to_destination_coordinates(self, ax: np.ndarray, ay: np.ndarray, az: np.ndarray):
+    def from_transform_to_destination_coordinates(
+        self, ax: np.ndarray, ay: np.ndarray, az: np.ndarray
+    ):
         """
         Sets the rotation/transformation vector :math:`\\boldsymbol{R}` so it converts a vector, :math:`\\vec{v}`, specified in the system, :math:`\\boldsymbol{A}` (
         :math:`\\hat{x}_a` , :math:`\\hat{y}_a` , :math:`\\hat{z}_a` ),  to the same vector but specified in the destination system, :math:`\\boldsymbol{B}`
@@ -195,7 +211,9 @@ class RotationMatrix:
 
         """
 
-        self._R = B @ np.linalg.inv(A)       # Note that you can also use the transpose of A, as it should be the inverse for proper rotations
+        self._R = B @ np.linalg.inv(
+            A
+        )  # Note that you can also use the transpose of A, as it should be the inverse for proper rotations
 
     # -----------------------------------------------------------------------------
     #           from_yaw_pitch_roll
@@ -223,25 +241,45 @@ class RotationMatrix:
             The roll angle in radians. This rotation is applied last to the rotated x axis.
         """
 
-        yawMatrix = np.array([[math.cos(yaw), -math.sin(yaw), 0],                   # Yaw is rotation around the Z axis
-                              [math.sin(yaw), math.cos(yaw), 0],
-                              [0, 0, 1]])
+        yawMatrix = np.array(
+            [
+                [math.cos(yaw), -math.sin(yaw), 0],  # Yaw is rotation around the Z axis
+                [math.sin(yaw), math.cos(yaw), 0],
+                [0, 0, 1],
+            ]
+        )
 
-        pitchMatrix = np.array([[math.cos(pitch), 0, math.sin(pitch)],             # Pitch is rotation about the Y axis
-                                [0, 1, 0],
-                                [-math.sin(pitch), 0, math.cos(pitch)]])
+        pitchMatrix = np.array(
+            [
+                [
+                    math.cos(pitch),
+                    0,
+                    math.sin(pitch),
+                ],  # Pitch is rotation about the Y axis
+                [0, 1, 0],
+                [-math.sin(pitch), 0, math.cos(pitch)],
+            ]
+        )
 
-        rollMatrix = np.array([[1, 0, 0],                                           # Roll is rotation around the X axis
-                               [0, math.cos(roll), -math.sin(roll)],
-                               [0, math.sin(roll), +math.cos(roll)]])
+        rollMatrix = np.array(
+            [
+                [1, 0, 0],  # Roll is rotation around the X axis
+                [0, math.cos(roll), -math.sin(roll)],
+                [0, math.sin(roll), +math.cos(roll)],
+            ]
+        )
 
-        self._R = yawMatrix @ pitchMatrix @ rollMatrix                              # Apply rotation ZYX, (note it is an instrinsic rotation so we apply roll first then pitch then yaw)
+        self._R = (
+            yawMatrix @ pitchMatrix @ rollMatrix
+        )  # Apply rotation ZYX, (note it is an instrinsic rotation so we apply roll first then pitch then yaw)
 
     # -----------------------------------------------------------------------------
     #           from_azimuth_elevation_roll
     # -----------------------------------------------------------------------------
 
-    def from_azimuth_elevation_roll(self, azimuthradians: float, elevationradians: float, rollradians: float):
+    def from_azimuth_elevation_roll(
+        self, azimuthradians: float, elevationradians: float, rollradians: float
+    ):
         """
         Create a rotation matrix that rotates a vector by the specified azimuth, elevation and roll. It is is suitable
         for systems where the :math:`\\hat{x}` is horizontal and forwards, the :math:`\\hat{z}` axis is upwards and the
@@ -288,8 +326,7 @@ class RotationMatrix:
 
         """
 
-        v = self._R @ lookvector
-        return v
+        return self._R @ lookvector
 
 
 # -----------------------------------------------------------------------------
@@ -314,8 +351,15 @@ class UnitVectors:
     of this matrix.
 
     """
-    def __init__(self, vectors: Union[List[List[float]], Tuple[np.ndarray, np.ndarray, np.ndarray], np.ndarray] = None):
-        self._R: np.ndarray = RotationMatrix.IUnit() if vectors is None else np.array(vectors).transpose()
+
+    def __init__(
+        self,
+        vectors: list[list[float]]
+        | (tuple[np.ndarray, np.ndarray, np.ndarray] | np.ndarray) = None,
+    ):
+        self._R: np.ndarray = (
+            RotationMatrix.IUnit() if vectors is None else np.array(vectors).transpose()
+        )
 
     @property
     def R(self):
@@ -334,7 +378,7 @@ class UnitVectors:
     #           roll_pitch_yaw
     # -----------------------------------------------------------------------------
 
-    def roll_pitch_yaw(self) -> Tuple[float, float, float]:
+    def roll_pitch_yaw(self) -> tuple[float, float, float]:
         """
         Returns the yaw, pitch and roll in radians that respresents
         this rotation matrix
@@ -351,8 +395,8 @@ class UnitVectors:
         r31 = r[2, 0]
         r32 = r[2, 1]
         r33 = r[2, 2]
-        sinbeta = -r31                                      # get (3,1)
-        cosbeta = math.sqrt(r32 * r32 + r33 * r33)         # r[3,2]^2 + r[3,3]^2
+        sinbeta = -r31  # get (3,1)
+        cosbeta = math.sqrt(r32 * r32 + r33 * r33)  # r[3,2]^2 + r[3,3]^2
         pitch = math.atan2(sinbeta, cosbeta)
         yaw = math.atan2(r21, r11)
         roll = math.atan2(r32, r33)

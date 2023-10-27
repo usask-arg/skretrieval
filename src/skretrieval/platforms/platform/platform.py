@@ -1,17 +1,19 @@
-from typing import List, Union, Tuple
+from __future__ import annotations
+
 import numpy as np
-from .rotationmatrix import RotationMatrix
-from .platform_pointing import PlatformPointing
-from .observationpolicy import ObservationPolicy
-from .platformlocator import PlatformLocation
-from ..orientation_techniques import OrientationTechniques
+
 from ...core import OpticalGeometry
+from ..orientation_techniques import OrientationTechniques
+from .observationpolicy import ObservationPolicy
+from .platform_pointing import PlatformPointing
+from .platformlocator import PlatformLocation
+from .rotationmatrix import RotationMatrix
 
 
 # -----------------------------------------------------------------------------
 #           class Platform
 # -----------------------------------------------------------------------------
-class Platform():
+class Platform:
     """
     The purpose of the Platform class is to capture the details of the physical platform carrying an instrument. Common
     examples of platforms used in atmospheric research are spacecraft, aircraft, balloons and ground-based sites. There
@@ -29,11 +31,16 @@ class Platform():
     #. Create the internal :class:`~.ObservationPolicy` for the measurement set, see :meth:`~.make_observation_policy`.
     #. Convert the :class:`~.ObservationPolicy` to arrays of position and instrument look vectors suitable for retrieval code.
     """
+
     # -----------------------------------------------------------------------------
     #           __init__
     # -----------------------------------------------------------------------------
 
-    def __init__(self, observation_policy: ObservationPolicy = None, platform_locator: PlatformLocation = None):
+    def __init__(
+        self,
+        observation_policy: ObservationPolicy = None,
+        platform_locator: PlatformLocation = None,
+    ):
         """
         Creates a new platform object.
 
@@ -52,7 +59,11 @@ class Platform():
         self._platform_pointing: PlatformPointing = PlatformPointing()
         self._platform_location: PlatformLocation = platform_locator
         self._orientationtechniques: OrientationTechniques = OrientationTechniques()
-        self._observation_policy: ObservationPolicy = observation_policy if observation_policy is not None else ObservationPolicy()
+        self._observation_policy: ObservationPolicy = (
+            observation_policy
+            if observation_policy is not None
+            else ObservationPolicy()
+        )
 
     # ------------------------------------------------------------------------------
     #           platform_pointing
@@ -117,7 +128,7 @@ class Platform():
     #           icf_to_ecef_rotation_matrices
     # ------------------------------------------------------------------------------
     @property
-    def icf_to_ecef_rotation_matrices(self) -> List[RotationMatrix]:
+    def icf_to_ecef_rotation_matrices(self) -> list[RotationMatrix]:
         """
         Returns the platform rotation matrices, one  matrix for each RT calculation
 
@@ -147,7 +158,13 @@ class Platform():
     #           add_measurement_set
     # ------------------------------------------------------------------------------
 
-    def add_measurement_set(self, utc, observer_definitions, pointing_definitions, instrument_internal_rotation=None):
+    def add_measurement_set(
+        self,
+        utc,
+        observer_definitions,
+        pointing_definitions,
+        instrument_internal_rotation=None,
+    ):
         """
         Adds a set of *N* measurements definitions to the internal list of measurement sets. An overview of position and
         orientation techniques is given in :ref:`platforms_model`.
@@ -186,7 +203,12 @@ class Platform():
             The roll defaults to 0.0 if not supplied.
 
         """
-        self._orientationtechniques.add_measurement_set(utc, observer_definitions, pointing_definitions, instrument_internal_rotation=instrument_internal_rotation)
+        self._orientationtechniques.add_measurement_set(
+            utc,
+            observer_definitions,
+            pointing_definitions,
+            instrument_internal_rotation=instrument_internal_rotation,
+        )
 
     # ------------------------------------------------------------------------------
     #           make_observation_policy
@@ -207,7 +229,7 @@ class Platform():
     # ------------------------------------------------------------------------------
     #           make_optical_geometry
     # ------------------------------------------------------------------------------
-    def make_optical_geometry(self) -> List[OpticalGeometry]:
+    def make_optical_geometry(self) -> list[OpticalGeometry]:
         """
         Takes all the measurements from previous calls to :meth:`~.Platform.add_measurement_set` and returns them as
         a list of OpticalGeometry values which can be used by various retrievals.  The internal :class:`~.ObservationPolicy` is
@@ -262,14 +284,28 @@ class Platform():
         np.ndarray (3,Nlos, Ntime)
             A numpy array is returned with the 3 element geographic, geocentric, line of sight unit vector for each
             input lines of sight and each time in the current observation set.
-          """
+        """
         Nlos = los_icf.shape[1]
-        obs = self.observation_policy                               # Get the observation set used for this back_end_radiance calculation                                                                                    # Get the number of instantaneous lines of sight from the second dimension of the array. LOS are specified in the instrument control frame
-        Nt = obs.numsamples_in_observationset()                     # Get the number of exposures/samples in the observation set
-        rot = obs.icf_to_ecef_rotation_matrix()                                # Copy the rotation matrices for each sample in the observation set.
-        all_los = np.full((3, Nlos, Nt), np.nan)                    # Create an array to hold the lines of sight for all instantaneous directions and all times
-        for i in range(Nt):                                         # for each time
-            R = rot[i]                                              # Get the platform rotation matrix that converts ICF vectors to ECEF vectors
-            instantaneouslos = R.R @ los_icf                        # Convert all the instrument control frame instantaneous lines of sight for this sample to geocentric geographic lines of sight
-            all_los[:, :, i] = instantaneouslos                     # and save the geo unit vectors in the array.
+        obs = (
+            self.observation_policy
+        )  # Get the observation set used for this back_end_radiance calculation                                                                                    # Get the number of instantaneous lines of sight from the second dimension of the array. LOS are specified in the instrument control frame
+        Nt = (
+            obs.numsamples_in_observationset()
+        )  # Get the number of exposures/samples in the observation set
+        rot = (
+            obs.icf_to_ecef_rotation_matrix()
+        )  # Copy the rotation matrices for each sample in the observation set.
+        all_los = np.full(
+            (3, Nlos, Nt), np.nan
+        )  # Create an array to hold the lines of sight for all instantaneous directions and all times
+        for i in range(Nt):  # for each time
+            R = rot[
+                i
+            ]  # Get the platform rotation matrix that converts ICF vectors to ECEF vectors
+            instantaneouslos = (
+                R.R @ los_icf
+            )  # Convert all the instrument control frame instantaneous lines of sight for this sample to geocentric geographic lines of sight
+            all_los[
+                :, :, i
+            ] = instantaneouslos  # and save the geo unit vectors in the array.
         return all_los

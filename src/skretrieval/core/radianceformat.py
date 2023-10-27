@@ -1,10 +1,11 @@
-import xarray as xr
-from typing import List
-from copy import copy
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-import sasktran as sk
+
 import numpy as np
 import pandas as pd
+import sasktran as sk
+import xarray as xr
 from scipy import sparse
 
 
@@ -12,6 +13,7 @@ class RadianceBase(ABC):
     """
     Base functionality that every radiance format must support
     """
+
     def __init__(self, ds: xr.Dataset):
         self._ds = ds
 
@@ -33,21 +35,25 @@ class RadianceBase(ABC):
             Dataset containing 'latitude', 'longitude', and 'altitude' of the tangent locations
 
         """
-        los_dims = [dim for dim in self._ds['los_vectors'].dims if dim != 'xyz']
+        los_dims = [dim for dim in self._ds["los_vectors"].dims if dim != "xyz"]
 
-        stacked_los = self._ds['los_vectors'].stack(temp_dim=los_dims)
-        stacked_obs = self._ds['observer_position'].stack(temp_dim=los_dims)
-        stacked_mjd = self._ds['mjd'].stack(temp_dim=los_dims)
+        stacked_los = self._ds["los_vectors"].stack(temp_dim=los_dims)  # noqa: PD013
+        stacked_obs = self._ds["observer_position"].stack(  # noqa: PD013
+            temp_dim=los_dims
+        )
+        stacked_mjd = self._ds["mjd"].stack(temp_dim=los_dims)  # noqa: PD013
 
         latitudes = []
         longitudes = []
         altitudes = []
-        for idx in stacked_los['temp_dim']:
+        for idx in stacked_los["temp_dim"]:
             one_los = stacked_los.sel(temp_dim=idx)
             one_obs = stacked_obs.sel(temp_dim=idx)
             one_mjd = stacked_mjd.sel(temp_dim=idx)
 
-            los = sk.LineOfSight(mjd=one_mjd.values, observer=one_obs.values, look_vector=one_los.values)
+            los = sk.LineOfSight(
+                mjd=one_mjd.values, observer=one_obs.values, look_vector=one_los.values
+            )
 
             location = los.tangent_location()
 
@@ -58,14 +64,16 @@ class RadianceBase(ABC):
             longitudes.append(location.longitude)
             altitudes.append(location.altitude)
 
-        result = xr.Dataset({'latitude': (['temp_dim'], latitudes),
-                             'longitude': (['temp_dim'], longitudes),
-                             'altitude': (['temp_dim'], altitudes)},
-                            coords=stacked_los.coords)
+        result = xr.Dataset(
+            {
+                "latitude": (["temp_dim"], latitudes),
+                "longitude": (["temp_dim"], longitudes),
+                "altitude": (["temp_dim"], altitudes),
+            },
+            coords=stacked_los.coords,
+        )
 
-        result = result.unstack('temp_dim').drop('xyz')
-
-        return result
+        return result.unstack("temp_dim").drop("xyz")  # noqa: PD010
 
     @abstractmethod
     def to_raw(self):
@@ -111,14 +119,13 @@ class RadianceGridded(RadianceBase):
         return True
 
     def to_raw(self):
-        new_ds = self.data.stack(meas=['wavelength', 'los'])
+        new_ds = self.data.stack(meas=["wavelength", "los"])  # noqa: PD013
 
         return RadianceRaw(new_ds)
 
 
 class RadianceSpectralImage(RadianceGridded):
-
-    def __init__(self, ds, num_columns: int = None, num_rows: int = None):
+    def __init__(self, ds, num_columns: int | None = None, num_rows: int | None = None):
         """
         A Specific radiance format to hold a (wavelength x columns x rows) grid of data. Only one of `num_columns` or
         `num_rows` should be specified.
@@ -134,7 +141,8 @@ class RadianceSpectralImage(RadianceGridded):
             Number of rows in the radiance grid. Optional, inferred from num_columns if not provided.
         """
         if (num_columns is None) and (num_rows is None):
-            raise ValueError('either num_columns or num_rows must be specified')
+            msg = "either num_columns or num_rows must be specified"
+            raise ValueError(msg)
 
         if num_rows is None:
             num_rows = int(len(ds.los) / num_columns)
@@ -142,26 +150,33 @@ class RadianceSpectralImage(RadianceGridded):
             num_columns = int(len(ds.los) / num_rows)
 
         if num_rows * num_columns != len(ds.los):
-            raise ValueError('number of pixels must equal the number of lines of sight')
+            msg = "number of pixels must equal the number of lines of sight"
+            raise ValueError(msg)
 
         nx = np.arange(0, num_columns)
         ny = np.arange(0, num_rows)
-        mi = pd.MultiIndex.from_product([ny, nx], names=['ny', 'nx'])
+        mi = pd.MultiIndex.from_product([ny, nx], names=["ny", "nx"])
         dsc = ds.copy()
-        dsc.coords['los'] = mi
-        dsc = dsc.unstack('los')
+        dsc.coords["los"] = mi
+        dsc = dsc.unstack("los")  # noqa: PD010
 
         super().__init__(dsc)
 
 
-class RadianceOrbit(object):
+class RadianceOrbit:
     """
     A collection of other RadianceFormats that combine together to create an entire orbit of L1 data
 
     For example an entire orbit of OMPS data can be created either as a single RadianceGridded for the entire orbit
     or as a List of single RadianceGridded for each image
     """
-    def __init__(self, data: List[RadianceBase], wf: List[sparse.spmatrix] = None, wf_names=None):
+
+    def __init__(
+        self,
+        data: list[RadianceBase],
+        wf: list[sparse.spmatrix] | None = None,
+        wf_names=None,
+    ):
         self._data = data
         self._wf = wf
         self._wf_names = wf_names
@@ -189,22 +204,27 @@ class RadianceOrbit(object):
         if self._wf is not None:
             if dense_wf:
                 if self._wf_names is None:
-                    wfs = np.array([wf[self._slices[index], :].toarray() for wf in self._wf])
-                    radiance.data['wf'] = (['wavelength', 'los', 'perturbation'], wfs)
+                    wfs = np.array(
+                        [wf[self._slices[index], :].toarray() for wf in self._wf]
+                    )
+                    radiance.data["wf"] = (["wavelength", "los", "perturbation"], wfs)
                 else:
                     for wf_name, specieswf in zip(self._wf_names, self._wf):
-                        wfs = np.array([wf[self._slices[index], :].toarray() for wf in specieswf])
-                        radiance.data[wf_name] = (['wavelength', 'los', 'perturbation'], wfs)
+                        wfs = np.array(
+                            [wf[self._slices[index], :].toarray() for wf in specieswf]
+                        )
+                        radiance.data[wf_name] = (
+                            ["wavelength", "los", "perturbation"],
+                            wfs,
+                        )
                 return radiance
-            else:
-                if self._wf_names is None:
-                    wfs = np.array([wf[self._slices[index], :] for wf in self._wf])
-                    return radiance, wfs
-                else:
-                    wfs = []
-                    for specieswf in self._wf:
-                        wfs.append(np.array([wf[self._slices[index], :] for wf in specieswf]))
-                    return radiance, wfs
+            if self._wf_names is None:
+                wfs = np.array([wf[self._slices[index], :] for wf in self._wf])
+                return radiance, wfs
+            wfs = []
+            for specieswf in self._wf:
+                wfs.append(np.array([wf[self._slices[index], :] for wf in specieswf]))
+            return radiance, wfs
         return radiance
 
     @property

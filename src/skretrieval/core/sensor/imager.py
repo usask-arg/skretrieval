@@ -1,11 +1,13 @@
-from sasktran import LineOfSight, Geometry
-from skretrieval.core.sensor import Sensor, OpticalGeometry
-from skretrieval.core.lineshape import LineShape
-from skretrieval.core.sensor.spectrograph import SpectrographFast, Spectrograph
-from skretrieval.core.radianceformat import RadianceSpectralImage
-from typing import List, Type
-import xarray as xr
+from __future__ import annotations
+
 import numpy as np
+import xarray as xr
+from sasktran import Geometry, LineOfSight
+
+from skretrieval.core.lineshape import LineShape
+from skretrieval.core.radianceformat import RadianceSpectralImage
+from skretrieval.core.sensor import OpticalGeometry, Sensor
+from skretrieval.core.sensor.spectrograph import Spectrograph, SpectrographFast
 
 
 class SpectralImager(Sensor):
@@ -32,74 +34,119 @@ class SpectralImager(Sensor):
     num_rows : int
         Number of rows in the sensor
     """
-    def __init__(self, wavelength_nm: np.ndarray,
-                 spectral_lineshape: LineShape, pixel_vert_fov: LineShape, pixel_horiz_fov: LineShape,
-                 image_horiz_fov: float, image_vert_fov: float,
-                 num_columns: int, num_rows: int):
 
+    def __init__(
+        self,
+        wavelength_nm: np.ndarray,
+        spectral_lineshape: LineShape,
+        pixel_vert_fov: LineShape,
+        pixel_horiz_fov: LineShape,
+        image_horiz_fov: float,
+        image_vert_fov: float,
+        num_columns: int,
+        num_rows: int,
+    ):
         self.horizontal_fov = image_horiz_fov
         self.vertical_fov = image_vert_fov
         self._num_columns = num_columns
         self._num_rows = num_rows
         self._wavelenth_nm = wavelength_nm
-        self._pixels = self._create_pixels(wavelength_nm, spectral_lineshape, pixel_vert_fov, pixel_horiz_fov)
+        self._pixels = self._create_pixels(
+            wavelength_nm, spectral_lineshape, pixel_vert_fov, pixel_horiz_fov
+        )
 
-    def _create_pixels(self, wavelength_nm: np.ndarray,
-                       spectral_lineshape: LineShape,
-                       pixel_vert_fov: LineShape,
-                       pixel_horiz_fov: LineShape) -> List[Spectrograph]:
+    def _create_pixels(
+        self,
+        wavelength_nm: np.ndarray,
+        spectral_lineshape: LineShape,
+        pixel_vert_fov: LineShape,
+        pixel_horiz_fov: LineShape,
+    ) -> list[Spectrograph]:
         pixels = []
 
-        for i in range(self._num_columns):
-            for j in range(self._num_rows):
-                pixels.append(SpectrographFast(wavelength_nm=wavelength_nm, pixel_shape=spectral_lineshape,
-                                               vert_fov=pixel_vert_fov, horiz_fov=pixel_horiz_fov))
+        for _i in range(self._num_columns):
+            for _j in range(self._num_rows):
+                pixels.append(
+                    SpectrographFast(
+                        wavelength_nm=wavelength_nm,
+                        pixel_shape=spectral_lineshape,
+                        vert_fov=pixel_vert_fov,
+                        horiz_fov=pixel_horiz_fov,
+                    )
+                )
 
         return pixels
 
-    def model_radiance(self, optical_geometry: OpticalGeometry, model_wavel_nm: np.array, model_geometry: Geometry,
-                       radiance: np.array, wf=None) -> RadianceSpectralImage:
+    def model_radiance(
+        self,
+        optical_geometry: OpticalGeometry,
+        model_wavel_nm: np.array,
+        model_geometry: Geometry,
+        radiance: np.array,
+        wf=None,
+    ) -> RadianceSpectralImage:
+        optical_axes = self.pixel_optical_axes(
+            optical_geometry,
+            self.horizontal_fov,
+            self.vertical_fov,
+            self._num_columns,
+            self._num_rows,
+        )
 
-        optical_axes = self.pixel_optical_axes(optical_geometry,
-                                               self.horizontal_fov, self.vertical_fov,
-                                               self._num_columns, self._num_rows)
+        model_values = [
+            p.model_radiance(oa, model_wavel_nm, model_geometry, radiance, wf=wf)
+            for p, oa in zip(self._pixels, optical_axes)
+        ]
+        return RadianceSpectralImage(
+            xr.concat([m.data for m in model_values], dim="los"),
+            num_columns=self._num_columns,
+        )
 
-        model_values = [p.model_radiance(oa, model_wavel_nm, model_geometry, radiance, wf=wf)
-                        for p, oa in zip(self._pixels, optical_axes)]
-        return RadianceSpectralImage(xr.concat([m.data for m in model_values], dim='los'),
-                                     num_columns=self._num_columns)
-
-    def radiance_format(self) -> Type[RadianceSpectralImage]:
-
+    def radiance_format(self) -> type[RadianceSpectralImage]:
         return RadianceSpectralImage
 
-    def measurement_geometry(self, optical_geometry: OpticalGeometry,
-                             num_horiz_samples: int = None,
-                             num_vertical_samples: int = None) -> List[LineOfSight]:
-
+    def measurement_geometry(
+        self,
+        optical_geometry: OpticalGeometry,
+        num_horiz_samples: int | None = None,
+        num_vertical_samples: int | None = None,
+    ) -> list[LineOfSight]:
         if num_vertical_samples is None:
             num_vertical_samples = self._num_rows
         if num_horiz_samples is None:
             num_horiz_samples = self._num_columns
 
-        optical_axes = self.pixel_optical_axes(optical_geometry,
-                                               self.horizontal_fov, self.vertical_fov,
-                                               num_horiz_samples, num_vertical_samples)
-        return [LineOfSight(mjd=oa.mjd, observer=oa.observer, look_vector=oa.look_vector) for oa in optical_axes]
+        optical_axes = self.pixel_optical_axes(
+            optical_geometry,
+            self.horizontal_fov,
+            self.vertical_fov,
+            num_horiz_samples,
+            num_vertical_samples,
+        )
+        return [
+            LineOfSight(mjd=oa.mjd, observer=oa.observer, look_vector=oa.look_vector)
+            for oa in optical_axes
+        ]
 
     def measurement_wavelengths(self) -> np.ndarray:
         return np.unique(np.array([p.measurement_wavelengths() for p in self._pixels]))
 
     def required_wavelengths(self, res_nm: float) -> np.ndarray:
-        return np.unique(np.array([p.required_wavelengths(res_nm) for p in self._pixels]))
+        return np.unique(
+            np.array([p.required_wavelengths(res_nm) for p in self._pixels])
+        )
 
     @staticmethod
-    def pixel_optical_axes(optical_axis: OpticalGeometry,
-                           hfov: float, vfov: float,
-                           num_columns: int, num_rows: int) -> List[OpticalGeometry]:
+    def pixel_optical_axes(
+        optical_axis: OpticalGeometry,
+        hfov: float,
+        vfov: float,
+        num_columns: int,
+        num_rows: int,
+    ) -> list[OpticalGeometry]:
         """
         Get the optical geometry at the center of each pixel in the sensor.
-        
+
         Parameters
         ----------
         optical_axis : OpticalGeometry
@@ -135,7 +182,10 @@ class SpectralImager(Sensor):
         xaxis = np.cross(up, look)
         xaxis /= np.linalg.norm(xaxis)
         yaxis = up
-        for x, y, in zip(nx.flatten(), ny.flatten()):
+        for (
+            x,
+            y,
+        ) in zip(nx.flatten(), ny.flatten()):
             pos = center + xaxis * x + yaxis * y
             los = pos - obs
             los /= np.linalg.norm(los)
@@ -143,6 +193,10 @@ class SpectralImager(Sensor):
             pixel_yaxis /= np.linalg.norm(pixel_yaxis)
             pixel_up = np.cross(pixel_yaxis, los)
             pixel_up /= np.linalg.norm(pixel_up)
-            pixel_geometry.append(OpticalGeometry(observer=obs, look_vector=los, local_up=pixel_up, mjd=mjd))
+            pixel_geometry.append(
+                OpticalGeometry(
+                    observer=obs, look_vector=los, local_up=pixel_up, mjd=mjd
+                )
+            )
 
         return pixel_geometry

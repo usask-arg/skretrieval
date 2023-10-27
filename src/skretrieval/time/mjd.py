@@ -10,21 +10,22 @@ no attempt to implements IERS (Earth Rotation) details such as leap seconds etc.
  - `mjd_to_datetime`, converts scalar mjd to datetime.datetime
  - `datetime64_to_datetime`, converts numpy.datetime64 to datetime.datetime
 """
+from __future__ import annotations
 
-from typing import Union, List, Tuple
-from datetime import datetime, timedelta
-from collections.abc import Sequence
-import numbers
-import numpy as np
 import math
-import time
-import string
+import numbers
 import re
+import string
+import time
+from collections.abc import Sequence
+from datetime import datetime, timedelta
+
+import numpy as np
 from astropy.time import Time
 
-_g_mjd0str = '1858-11-17 00:00:00.000000'
+_g_mjd0str = "1858-11-17 00:00:00.000000"
 _t0_64 = np.datetime64(_g_mjd0str)
-_t0 = datetime.strptime(_g_mjd0str, '%Y-%m-%d %H:%M:%S.%f')
+_t0 = datetime.strptime(_g_mjd0str, "%Y-%m-%d %H:%M:%S.%f")
 
 
 # ------------------------------------------------------------------------------
@@ -47,8 +48,11 @@ def datetime64_to_mjd(utc: np.datetime64) -> float:
         The corresponding modified julian date.
 
     """
-    mjd = (utc - _t0_64).astype('timedelta64[us]') / np.timedelta64(1, 'us') / 86400000000.0
-    return mjd
+    return (
+        (utc - _t0_64).astype("timedelta64[us]")
+        / np.timedelta64(1, "us")
+        / 86400000000.0
+    )
 
 
 # ------------------------------------------------------------------------------
@@ -69,9 +73,8 @@ def mjd_to_datetime64(mjd: float) -> np.datetime64:
     numpy.datetime64
         The numpy.datetime64 corresponding to the modified julian date
     """
-    dt = np.timedelta64(int(mjd * 86400000000.0 + 0.5), 'us')
-    utc = (_t0_64 + dt).astype('datetime64[us]')
-    return utc
+    dt = np.timedelta64(int(mjd * 86400000000.0 + 0.5), "us")
+    return (_t0_64 + dt).astype("datetime64[us]")
 
 
 # ------------------------------------------------------------------------------
@@ -94,8 +97,7 @@ def mjd_to_datetime(mjd: float) -> datetime:
     """
 
     dt = timedelta(days=mjd)
-    utc = _t0 + dt
-    return utc
+    return _t0 + dt
 
 
 # ------------------------------------------------------------------------------
@@ -118,9 +120,11 @@ def datetime_to_mjd(t: datetime) -> float:
         The corresponding modified julian date.
 
     """
-    dt = t - _t0                                                                                          # from datetime
-    mjd = float(dt.days) + (float(dt.seconds) + float(dt.microseconds) * 1.0E-06) / 86400.0                # to mjd as a floating point
-    return mjd
+    dt = t - _t0  # from datetime
+    return (
+        float(dt.days)
+        + (float(dt.seconds) + float(dt.microseconds) * 1.0e-06) / 86400.0
+    )  # to mjd as a floating point
 
 
 # ------------------------------------------------------------------------------
@@ -144,12 +148,14 @@ def mjd_to_ut(mjd):
 
     if (type(mjd) is np.ndarray) or (isinstance(mjd, Sequence)):
         if type(mjd) is np.ndarray:
-            utc = np.zeros_like(mjd, dtype='datetime64[us]')
-            with np.nditer([mjd, utc],
-                           flags=['buffered'],                                       # create the nupy iterator object
-                           op_flags=[['readonly'], ['writeonly']]) as it:
-                for a, b in it:                                                                                  # and convert each elemnet
-                    b[...] = mjd_to_datetime64(a)                                                                 # from datetime to mjd
+            utc = np.zeros_like(mjd, dtype="datetime64[us]")
+            with np.nditer(
+                [mjd, utc],
+                flags=["buffered"],  # create the nupy iterator object
+                op_flags=[["readonly"], ["writeonly"]],
+            ) as it:
+                for a, b in it:  # and convert each elemnet
+                    b[...] = mjd_to_datetime64(a)  # from datetime to mjd
                 utc = it.operands[1]
         else:
             utc = np.zeros([len(mjd)])
@@ -188,47 +194,60 @@ def ut_to_mjd(utc):
     """
 
     if type(utc) is np.ndarray:
-                                                                                                                # Handle an numpy array of MJD values, datetime64, datetime objects or mjd numbers
-        if utc.dtype.kind == 'M':                                                                                # if we have a numpy array of datetime64 object
-            mjd = datetime64_to_mjd(utc)                                                                        # then convert it to floating point MJD
-        elif (utc.dtype.kind == 'O') and (len(utc) > 0) and (type(utc[0]) is datetime):                           # otherwiseif we have a numpy array of  datetime objects
-            mjd = np.zeros_like(utc, dtype=np.float64)                                                          # create the output array
-            with np.nditer([utc, mjd],
-                           flags=['refs_ok', 'buffered'],                                       # create the nupy iterator object
-                           op_flags=[['readonly'], ['writeonly']]) as it:
-                for a, b in it:                                                                                  # and convert each elemnet
-                    t = datetime_to_mjd(a)                                                                 # from datetime to mjd
+        # Handle an numpy array of MJD values, datetime64, datetime objects or mjd numbers
+        if utc.dtype.kind == "M":  # if we have a numpy array of datetime64 object
+            mjd = datetime64_to_mjd(utc)  # then convert it to floating point MJD
+        elif (
+            (utc.dtype.kind == "O") and (len(utc) > 0) and (type(utc[0]) is datetime)
+        ):  # otherwiseif we have a numpy array of  datetime objects
+            mjd = np.zeros_like(utc, dtype=np.float64)  # create the output array
+            with np.nditer(
+                [utc, mjd],
+                flags=["refs_ok", "buffered"],  # create the nupy iterator object
+                op_flags=[["readonly"], ["writeonly"]],
+            ) as it:
+                for a, b in it:  # and convert each elemnet
+                    t = datetime_to_mjd(a)  # from datetime to mjd
                     b[...] = t
                 mjd = it.operands[1]
-        elif (utc.dtype.kind == 'U'):                                                                           # otherwise if the array is strings
-            mjd = np.zeros_like(utc, dtype=np.float64)                                                          # then make an array to hold the answer
-            with np.nditer([utc, mjd],
-                           flags=['refs_ok', 'buffered'],
-                           op_flags=[['readonly'], ['writeonly']]) as it:
-                for a, b in it:                                                                                 # For each element in the array
-                    t = datetime.fromisoformat(str(a))                                                          # convert the string to datetime
-                    b[...] = datetime_to_mjd(t)                                                                 # and from datetime to mjd
+        elif utc.dtype.kind == "U":  # otherwise if the array is strings
+            mjd = np.zeros_like(
+                utc, dtype=np.float64
+            )  # then make an array to hold the answer
+            with np.nditer(
+                [utc, mjd],
+                flags=["refs_ok", "buffered"],
+                op_flags=[["readonly"], ["writeonly"]],
+            ) as it:
+                for a, b in it:  # For each element in the array
+                    t = datetime.fromisoformat(str(a))  # convert the string to datetime
+                    b[...] = datetime_to_mjd(t)  # and from datetime to mjd
                 mjd = it.operands[1]
-        else:                                                                                                   # otherwise we have an array of something else, I assume its array of numbers
-            mjd = np.array(utc, dtype=np.float64)                                                                # so try and convert the array of numbers to floating point MJD.
+        else:  # otherwise we have an array of something else, I assume its array of numbers
+            mjd = np.array(
+                utc, dtype=np.float64
+            )  # so try and convert the array of numbers to floating point MJD.
 
-    elif type(utc) is str:                                                                                      # if we have a single string
-        t = datetime.fromisoformat(utc)                                                                         # then convert the string to datetime
-        mjd = datetime_to_mjd(t)                                                                                # and from datetime to mjd
+    elif isinstance(utc, str):  # if we have a single string
+        t = datetime.fromisoformat(utc)  # then convert the string to datetime
+        mjd = datetime_to_mjd(t)  # and from datetime to mjd
 
-    elif isinstance(utc, Sequence):                                                                            # if we have a list or tuple but not numpy array
-            newutc = np.array(utc)                                                                            # then convert the array to numpy array
-            mjd = ut_to_mjd(newutc)                                                                       # and convert the numpy array to mjd
-    else:                                                                                                       # Its not a numpy array, its not a sequence, so assume its a scalar
-        if (type(utc) is datetime):                                                                             # if its a datetime object
-            mjd = datetime_to_mjd(utc)                                                                          # to mjd as a floating point
-        elif type(utc) is np.datetime64:                                                                        # if we have a single numpy.datetime64
-            mjd = float(datetime64_to_mjd(utc))                                                                 # then convert it
-        elif isinstance(utc, numbers.Number):                                                                   # if we have a number
-            mjd = float(utc)                                                                                    # then assume its already an MJD
-        else:                                                                                                   # otherwise
+    elif isinstance(utc, Sequence):  # if we have a list or tuple but not numpy array
+        newutc = np.array(utc)  # then convert the array to numpy array
+        mjd = ut_to_mjd(newutc)  # and convert the numpy array to mjd
+    else:  # Its not a numpy array, its not a sequence, so assume its a scalar
+        if type(utc) is datetime:  # if its a datetime object
+            mjd = datetime_to_mjd(utc)  # to mjd as a floating point
+        elif type(utc) is np.datetime64:  # if we have a single numpy.datetime64
+            mjd = float(datetime64_to_mjd(utc))  # then convert it
+        elif isinstance(utc, numbers.Number):  # if we have a number
+            mjd = float(utc)  # then assume its already an MJD
+        else:  # otherwise
             mjd = math.nan
-            raise Exception('utc_to_mjd, unsupported data type {}. Cannot convert to mjd'.format(str(type(utc))))
+            msg = "utc_to_mjd, unsupported data type {}. Cannot convert to mjd".format(
+                str(type(utc))
+            )
+            raise Exception(msg)
     return mjd
 
 
@@ -259,16 +278,19 @@ def utc_to_astropy(utc):
     """
 
     formattype = None
-    if (type(utc) is np.ndarray) and utc.dtype.kind in ['i', 'u', 'f']:
-        formattype = 'mjd'
+    if (type(utc) is np.ndarray) and utc.dtype.kind in ["i", "u", "f"]:
+        formattype = "mjd"
     elif isinstance(utc, Sequence):
-        if (isinstance(utc[0], numbers.Number)):
-            formattype = 'mjd'
+        if isinstance(utc[0], numbers.Number):
+            formattype = "mjd"
     elif isinstance(utc, numbers.Number):
-        formattype = 'mjd'
+        formattype = "mjd"
 
-    t = Time(utc, format=formattype, scale='utc') if formattype is not None else Time(utc, scale='utc')
-    return t
+    return (
+        Time(utc, format=formattype, scale="utc")
+        if formattype is not None
+        else Time(utc, scale="utc")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -276,36 +298,47 @@ def utc_to_astropy(utc):
 # updated before it is used
 # ----------------------------------------------------------------------------
 class MJD:
-
     def __init__(self, mjd=0.0):
         self.m_mjd = mjd
 
     def from_date(self, year, month, day):
         self.from_utc(year, month, day, 0, 0, 0)
-        
+
     def from_utc(self, year, month, day, hour, minutes, seconds):
-        tupl = [int(year), int(month), int(day), int(hour), int(minutes), int(seconds), 0, 0, -1]
+        tupl = [
+            int(year),
+            int(month),
+            int(day),
+            int(hour),
+            int(minutes),
+            int(seconds),
+            0,
+            0,
+            -1,
+        ]
         secs = time.mktime(tupl) - time.timezone
         self.FromUnixSeconds(secs)
 
     def from_str(self, utcstr):
-        pattern = "[%s%s]+" % (string.punctuation, string.whitespace)      # Get all of the puctuation and whitespace charcaters
-        s = re.split(pattern, utcstr)                             # split the string with white space and punctuation
-        t = [0, 1, 1, 0, 0, 0]                                         # get default values for fields not suplied by user
-        n = min(len(s), 6)                                       # make sure we dont use more than 6 fields
+        pattern = f"[{string.punctuation}{string.whitespace}]+"  # Get all of the puctuation and whitespace charcaters
+        s = re.split(
+            pattern, utcstr
+        )  # split the string with white space and punctuation
+        t = [0, 1, 1, 0, 0, 0]  # get default values for fields not suplied by user
+        n = min(len(s), 6)  # make sure we dont use more than 6 fields
         for i in range(n):
-            t[i] = int(s[i])                            # now fill in the values supplied by user
-        self.from_utc(t[0], t[1], t[2], t[3], t[4], t[5])               # convert those times to UTC
+            t[i] = int(s[i])  # now fill in the values supplied by user
+        self.from_utc(t[0], t[1], t[2], t[3], t[4], t[5])  # convert those times to UTC
 
     def as_unix_seconds(self):
         secs = (self.m_mjd - 40587.0) * 86400.0
-        if (secs < 0):
+        if secs < 0:
             secs = 0
         return secs
 
     def AsTimeTuple(self):
         return time.gmtime(self.as_unix_seconds())
-        
+
     def FromUnixSeconds(self, secs):
         self.m_mjd = secs / 86400.0 + 40587.0
 
@@ -319,25 +352,27 @@ class MJD:
         return self.m_mjd
 
     def as_utc_str(self, doticks=0):
-        secs = self.as_unix_seconds() + 0.0005                            # Round the seconds to the nearest millisecond
-        tupl = time.gmtime(secs)                                        # Now get the time using the system call
-        utcstr = time.strftime("%Y-%m-%d %H:%M:%S", tupl)              # Encode as a string
-        if (doticks):                                                   # add the milliseconds if required
+        secs = (
+            self.as_unix_seconds() + 0.0005
+        )  # Round the seconds to the nearest millisecond
+        tupl = time.gmtime(secs)  # Now get the time using the system call
+        utcstr = time.strftime("%Y-%m-%d %H:%M:%S", tupl)  # Encode as a string
+        if doticks:  # add the milliseconds if required
             ticks = int((secs - int(secs)) * 1000.0)
             utcstr = "%s.%03d" % (utcstr, ticks)
         return utcstr
 
     def AsDateStr(self):
-        secs = self.as_unix_seconds() + 0.0005                            # Round the seconds to the nearest millisecond
-        tupl = time.gmtime(secs)                                        # Now get the time using the system call
-        datestr = time.strftime("%Y-%m-%d", tupl)                      # Encode as a string
-        return datestr
+        secs = (
+            self.as_unix_seconds() + 0.0005
+        )  # Round the seconds to the nearest millisecond
+        tupl = time.gmtime(secs)  # Now get the time using the system call
+        return time.strftime("%Y-%m-%d", tupl)  # Encode as a string
 
     def AsLocalTimeStr(self, formatstr="%H:%M"):
         secs = self.as_unix_seconds()
         tupl = time.localtime(secs)
-        str = time.strftime(formatstr, tupl)
-        return str
+        return time.strftime(formatstr, tupl)
 
     def __add__(self, other):
         self.m_mjd = self.m_mjd + float(other)

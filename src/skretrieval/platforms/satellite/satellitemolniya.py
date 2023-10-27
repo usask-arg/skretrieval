@@ -1,8 +1,12 @@
-from typing import Union
-import numpy as np
+from __future__ import annotations
+
+from datetime import datetime
 from math import radians
-from datetime import datetime, timedelta
+
+import numpy as np
+
 import skretrieval.time
+
 from .satellitebase import SatelliteBase
 from .satellitekepler import SatelliteKepler
 from .satellitesgp4 import SatelliteSGP4
@@ -19,27 +23,31 @@ class SatelliteMolniya(SatelliteBase):
     :meth:`~.set_molniya_from_elements`. A full desccription of the optional keyword arguments
     is given in that function. A sensible default Molniya orbit is provided in the defaults
     """
-    def __init__(self,
-                 utc: Union[datetime, np.datetime64, float, str],
-                 orbittype='kepler',
-                 period_from_seconds: float = 718.0 * 60.0,
-                 inclination_user_defined: float = radians(63.4),
-                 argument_of_perigee: float = radians(270.0),
-                 eccentricity: float = 0.74,
-                 sgp4_bstar_drag: float = 0.0,
-                 **kwargs):
 
+    def __init__(
+        self,
+        utc: datetime | (np.datetime64 | (float | str)),
+        orbittype="kepler",
+        period_from_seconds: float = 718.0 * 60.0,
+        inclination_user_defined: float = radians(63.4),
+        argument_of_perigee: float = radians(270.0),
+        eccentricity: float = 0.74,
+        sgp4_bstar_drag: float = 0.0,
+        **kwargs,
+    ):
         super().__init__()
         ut = skretrieval.time.ut_to_datetime(utc)
         self.satellite = None
-        self.set_molniya_from_elements(ut,
-                                       orbittype=orbittype,
-                                       period_from_seconds=period_from_seconds,
-                                       inclination_user_defined=inclination_user_defined,
-                                       argument_of_perigee=argument_of_perigee,
-                                       eccentricity=eccentricity,
-                                       sgp4_bstar_drag=sgp4_bstar_drag,
-                                       **kwargs)
+        self.set_molniya_from_elements(
+            ut,
+            orbittype=orbittype,
+            period_from_seconds=period_from_seconds,
+            inclination_user_defined=inclination_user_defined,
+            argument_of_perigee=argument_of_perigee,
+            eccentricity=eccentricity,
+            sgp4_bstar_drag=sgp4_bstar_drag,
+            **kwargs,
+        )
 
     # -----------------------------------------------------------------------------
     #           update_eci_position
@@ -55,7 +63,9 @@ class SatelliteMolniya(SatelliteBase):
             Updates the ECI eciposition and ECI ecivelocity of the stellite to this time
         """
         self.satellite.update_eci_position(tnow)
-        self._set_current_state(self.satellite.eciposition(), self.satellite.ecivelocity(), tnow)
+        self._set_current_state(
+            self.satellite.eciposition(), self.satellite.ecivelocity(), tnow
+        )
 
     # ------------------------------------------------------------------------------
     #           period
@@ -84,16 +94,17 @@ class SatelliteMolniya(SatelliteBase):
     #           set_sun_sync_from_elements
     # -----------------------------------------------------------------------------
 
-    def set_molniya_from_elements(self,
-                                  utc: datetime,
-                                  orbittype='kepler',
-                                  period_from_seconds: float = 718.0 * 60.0,
-                                  inclination_user_defined: float = radians(63.4),
-                                  argument_of_perigee: float = radians(270.0),
-                                  eccentricity: float = 0.74,
-                                  sgp4_bstar_drag: float = 0.0,
-                                  **kwargs):
-
+    def set_molniya_from_elements(
+        self,
+        utc: datetime,
+        orbittype="kepler",
+        period_from_seconds: float = 718.0 * 60.0,
+        inclination_user_defined: float = radians(63.4),
+        argument_of_perigee: float = radians(270.0),
+        eccentricity: float = 0.74,
+        sgp4_bstar_drag: float = 0.0,
+        **kwargs,
+    ):
         """
         Defines the Molniya orbit using Keplerian orbital elements. A default, standard Molniya orbit is provided via the default
         although the user must supply the right ascension of ascending node using one of the standard :class:`~.SatelliteKepler`
@@ -114,17 +125,18 @@ class SatelliteMolniya(SatelliteBase):
         kwargs: extra key word arguments.
             These keywords are from the keyword options in :meth:`.SatelliteKepler.from_elements`.
         """
-        kwargs['period_from_seconds'] = period_from_seconds
-        kwargs['inclination_radians'] = inclination_user_defined
-        kwargs['inclination_is_sun_sync'] = False
-        kwargs['argument_of_perigee'] = argument_of_perigee
-        kwargs['eccentricity'] = eccentricity
+        kwargs["period_from_seconds"] = period_from_seconds
+        kwargs["inclination_radians"] = inclination_user_defined
+        kwargs["inclination_is_sun_sync"] = False
+        kwargs["argument_of_perigee"] = argument_of_perigee
+        kwargs["eccentricity"] = eccentricity
         kepler = SatelliteKepler(utc, **kwargs)
-        if orbittype.lower() == 'kepler':
+        if orbittype.lower() == "kepler":
             self.satellite = kepler
-        elif orbittype.lower() == 'sgp4':
+        elif orbittype.lower() == "sgp4":
             sgp4 = SatelliteSGP4()
             sgp4.from_kepler_orbit(kepler, bstar=sgp4_bstar_drag)
             self.satellite = sgp4
         else:
-            raise Exception('the requested type of orbit predictor {} is not supported'.format(orbittype))
+            msg = f"the requested type of orbit predictor {orbittype} is not supported"
+            raise Exception(msg)

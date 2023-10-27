@@ -1,9 +1,12 @@
-from typing import Union, Tuple
+from __future__ import annotations
+
 import datetime
-import numpy as np
 from collections.abc import Sequence
+
 import astropy.time
+import numpy as np
 from astropy.utils import iers
+
 from .mjd import utc_to_astropy
 
 
@@ -11,7 +14,9 @@ from .mjd import utc_to_astropy
 #           gmst
 # Calculates the Greenwich Mean Sidereal time.
 # ------------------------------------------------------------------------------
-def gmst(utc: Union[np.datetime64, datetime.datetime, float, np.ndarray], **kwargs) -> Union[float, np.ndarray]:
+def gmst(
+    utc: np.datetime64 | (datetime.datetime | (float | np.ndarray)), **kwargs
+) -> float | np.ndarray:
     """
     Calculates the Greenwich Mean Sidereal Time for the given Universal time(s). The Universal time is UTC. We use the
     `astropy.time.Time.sidereal_time` function to calculate sidereal time; this function uses IERS corrections for timescales and
@@ -36,18 +41,16 @@ def gmst(utc: Union[np.datetime64, datetime.datetime, float, np.ndarray], **kwar
 
     """
     t = utc_to_astropy(utc)
-    st = t.sidereal_time('mean', 'greenwich', **kwargs)
+    st = t.sidereal_time("mean", "greenwich", **kwargs)
     return st.radian
 
 
 # ------------------------------------------------------------------------------
 #           rotate_about_zaxis
 # ------------------------------------------------------------------------------
-def _rotate_about_zaxis(u: np.ndarray,
-                        theta: Union[float, np.ndarray]) -> np.ndarray:
-
+def _rotate_about_zaxis(u: np.ndarray, theta: float | np.ndarray) -> np.ndarray:
     v = np.empty_like(u)
-    costheta = np.cos(theta)                # do the rotation around the Z axis
+    costheta = np.cos(theta)  # do the rotation around the Z axis
     sintheta = np.sin(theta)
     v[0, ...] = costheta * u[0, ...] + sintheta * u[1, ...]
     v[1, ...] = -sintheta * u[0, ...] + costheta * u[1, ...]
@@ -58,7 +61,7 @@ def _rotate_about_zaxis(u: np.ndarray,
 # ------------------------------------------------------------------------------
 #           polar_motion
 # ------------------------------------------------------------------------------
-def polar_motion_rotation_matrix(utc, transpose=False) -> Tuple[float, float]:
+def polar_motion_rotation_matrix(utc, transpose=False) -> tuple[float, float]:
     """
     Returns the polar motion rotation matrix for the given times. The rotation matrix is written as the matrix product
     of :math:`ROT1(y_p)*ROT2(x_p)` where ROT1 is rotation around the global x axis and ROT2 is rotation around the global
@@ -109,16 +112,24 @@ def polar_motion_rotation_matrix(utc, transpose=False) -> Tuple[float, float]:
     iers_b = iers.IERS_B.open()
     pxarcsec, pyarcsec, status = iers_b.pm_xy(t, return_status=True)
 
-    px = pxarcsec.value * np.pi / 648000.0               # convert arc seconds to radians
-    py = pyarcsec.value * np.pi / 648000.0               # convert arc seconds to radians
+    px = pxarcsec.value * np.pi / 648000.0  # convert arc seconds to radians
+    py = pyarcsec.value * np.pi / 648000.0  # convert arc seconds to radians
     cosxp = np.cos(px)
     sinxp = np.sin(px)
     cosyp = np.cos(py)
     sinyp = np.sin(py)
 
-    s = (t.size, 3, 3) if ((type(utc) is np.ndarray) or (type(utc) is astropy.time.Time) or (isinstance(utc, Sequence))) else (3, 3)
+    s = (
+        (t.size, 3, 3)
+        if (
+            (type(utc) is np.ndarray)
+            or (type(utc) is astropy.time.Time)
+            or (isinstance(utc, Sequence))
+        )
+        else (3, 3)
+    )
     pm = np.zeros(s)
-    if (transpose):
+    if transpose:
         pm[..., 0, 0] = cosxp
         pm[..., 0, 1] = sinxp * sinyp
         pm[..., 0, 2] = sinxp * cosyp
@@ -144,9 +155,11 @@ def polar_motion_rotation_matrix(utc, transpose=False) -> Tuple[float, float]:
 # ------------------------------------------------------------------------------
 #           eci_to_geo
 # ------------------------------------------------------------------------------
-def eciteme_to_itrf(eciv: np.ndarray,
-                    utc: Union[np.datetime64, datetime.datetime, float],
-                    do_polar_motion: bool = False) -> np.ndarray:
+def eciteme_to_itrf(
+    eciv: np.ndarray,
+    utc: np.datetime64 | (datetime.datetime | float),
+    do_polar_motion: bool = False,
+) -> np.ndarray:
     """
     Converts ECI TEME vectors to ITRF/GEO geocentric vectors. Calculates greenwich mean sidereal time using IAU1982 and
     rotates the vector around the Earth's Z axis to get Psuedo Earth Fixed (PEF). This is usually good enough for most
@@ -188,34 +201,56 @@ def eciteme_to_itrf(eciv: np.ndarray,
 
     """
 
-    if (type(eciv) is not np.ndarray):
+    if type(eciv) is not np.ndarray:
         eciv = np.array(eciv)
     s = eciv.shape
-    assert s[0] == 3, 'eciteme_to_itrf, requires the first dimension of the data to be of size 3'
+    assert (
+        s[0] == 3
+    ), "eciteme_to_itrf, requires the first dimension of the data to be of size 3"
 
-    theta = gmst(utc, model='IAU1982')                                  # Get the Greenwish Mean Sideral time with IAU1982. Return answer in radians.               This will return a scalar or an array N
-    geov = _rotate_about_zaxis(eciv, theta)                                 # Rotate around the Earths spin axis to get to Psuedo Earth Fixed (PEF), no polar motion.   Returns an array [3,] or an array[3,N]
+    theta = gmst(
+        utc, model="IAU1982"
+    )  # Get the Greenwish Mean Sideral time with IAU1982. Return answer in radians.               This will return a scalar or an array N
+    geov = _rotate_about_zaxis(
+        eciv, theta
+    )  # Rotate around the Earths spin axis to get to Psuedo Earth Fixed (PEF), no polar motion.   Returns an array [3,] or an array[3,N]
 
-    if (do_polar_motion):                                                   # For highest precision we want to include polar motion. This normally not require
-        s = geov.shape                                                 # Get the shape of the vector, save it for later
-        if (len(s) == 1):                                                   # if we have 1-d column vector {3,}
-            geopef = geov                                                   # then use as is.
-        else:                                                               # if we have 2 D array [3,N] then
-            geopef = geov.transpose()                                       # transpose it to [N,3] for upcoming matrix multiplication
-            geopef = geopef.reshape((s[1], s[0], 1))                         # and reshape it to [N,3,1] for upcoming matrix multiplication
-        pm = polar_motion_rotation_matrix(utc, transpose=True)          # Get the polar motion rotation axis, Array[3,3] or [N,3,3]
-        geov = pm @ geopef                                                # do the matrix multiplication (3,3)*(3,)  or stacked multiplication (N,3,3)*(N,3,1) to give (3,) or (N,3)
-        geov = np.squeeze(geov)                                         # We now have (3,) or (N,3,1) so remove the trailing 1 dimensions (plus any others)
-        geov = geov.transpose().reshape(s)                                # transpose back to (3,N) and reshape back to original form and we are done
-    return geov                                                             # return the vector
+    if (
+        do_polar_motion
+    ):  # For highest precision we want to include polar motion. This normally not require
+        s = geov.shape  # Get the shape of the vector, save it for later
+        if len(s) == 1:  # if we have 1-d column vector {3,}
+            geopef = geov  # then use as is.
+        else:  # if we have 2 D array [3,N] then
+            geopef = (
+                geov.transpose()
+            )  # transpose it to [N,3] for upcoming matrix multiplication
+            geopef = geopef.reshape(
+                (s[1], s[0], 1)
+            )  # and reshape it to [N,3,1] for upcoming matrix multiplication
+        pm = polar_motion_rotation_matrix(
+            utc, transpose=True
+        )  # Get the polar motion rotation axis, Array[3,3] or [N,3,3]
+        geov = (
+            pm @ geopef
+        )  # do the matrix multiplication (3,3)*(3,)  or stacked multiplication (N,3,3)*(N,3,1) to give (3,) or (N,3)
+        geov = np.squeeze(
+            geov
+        )  # We now have (3,) or (N,3,1) so remove the trailing 1 dimensions (plus any others)
+        geov = geov.transpose().reshape(
+            s
+        )  # transpose back to (3,N) and reshape back to original form and we are done
+    return geov  # return the vector
 
 
 # ------------------------------------------------------------------------------
 #           eci_to_geo
 # ------------------------------------------------------------------------------
-def itrf_to_eciteme(geov: np.ndarray,
-                    utc: Union[np.datetime64, datetime.datetime, float],
-                    do_polar_motion: bool = False) -> np.ndarray:
+def itrf_to_eciteme(
+    geov: np.ndarray,
+    utc: np.datetime64 | (datetime.datetime | float),
+    do_polar_motion: bool = False,
+) -> np.ndarray:
     """
     Converts ITRF/GEO geocentric vectors to ECI TEME vectors. See the sister function :func:`eciteme_to_itrf` for specific details
 
@@ -240,23 +275,38 @@ def itrf_to_eciteme(geov: np.ndarray,
         Returns an array of geocentric vectors. The array is the same size, shape and units as parameter `geov`.
 
     """
-    if (type(geov) is not np.ndarray):
+    if type(geov) is not np.ndarray:
         geov = np.array(geov)
     s = geov.shape
-    assert s[0] == 3, 'itrf_to_eciteme, requires the first dimension of the data to be of size 3'
+    assert (
+        s[0] == 3
+    ), "itrf_to_eciteme, requires the first dimension of the data to be of size 3"
 
-    if (do_polar_motion):                                                   # For highest precision we want to include polar motion. This normally not require
-        s = geov.shape                                                 # Get the shape of the vector, save it for later
-        if (len(s) == 1):                                                   # if we have 1-d column vector {3,}
-            geopef = geov                                                   # then use as is.
-        else:                                                               # if we have 2 D array [3,N] then
-            geopef = geov.transpose()                                       # transpose it to [N,3] for upcoming matrix multiplication
-            geopef = geopef.reshape((s[1], s[0], 1))                         # and reshape it to [N,3,1] for upcoming matrix multiplication
-        pm = polar_motion_rotation_matrix(utc, transpose=False)          # Get the polar motion rotation axis, Array[3,3] or [N,3,3]
-        geov = pm @ geopef                                                # do the matrix multiplication (3,3)*(3,)  or stacked multiplication (N,3,3)*(N,3,1) to give (3,) or (N,3)
-        geov = np.squeeze(geov)                                         # We now have (3,) or (N,3,1) so remove the trailing 1 dimensions (plus any others)
-        geov = geov.transpose().reshape(s)                                # transpose back to (3,N) and reshape back to original form and we are done
+    if (
+        do_polar_motion
+    ):  # For highest precision we want to include polar motion. This normally not require
+        s = geov.shape  # Get the shape of the vector, save it for later
+        if len(s) == 1:  # if we have 1-d column vector {3,}
+            geopef = geov  # then use as is.
+        else:  # if we have 2 D array [3,N] then
+            geopef = (
+                geov.transpose()
+            )  # transpose it to [N,3] for upcoming matrix multiplication
+            geopef = geopef.reshape(
+                (s[1], s[0], 1)
+            )  # and reshape it to [N,3,1] for upcoming matrix multiplication
+        pm = polar_motion_rotation_matrix(
+            utc, transpose=False
+        )  # Get the polar motion rotation axis, Array[3,3] or [N,3,3]
+        geov = (
+            pm @ geopef
+        )  # do the matrix multiplication (3,3)*(3,)  or stacked multiplication (N,3,3)*(N,3,1) to give (3,) or (N,3)
+        geov = np.squeeze(
+            geov
+        )  # We now have (3,) or (N,3,1) so remove the trailing 1 dimensions (plus any others)
+        geov = geov.transpose().reshape(
+            s
+        )  # transpose back to (3,N) and reshape back to original form and we are done
 
-    theta = -gmst(utc, model='IAU1982')
-    eciv = _rotate_about_zaxis(geov, theta)
-    return eciv
+    theta = -gmst(utc, model="IAU1982")
+    return _rotate_about_zaxis(geov, theta)

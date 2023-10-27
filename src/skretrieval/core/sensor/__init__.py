@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from skretrieval.core import OpticalGeometry
+
 import numpy as np
 from sasktran import Geometry
+
 import skretrieval.core.radianceformat as radianceformat
+from skretrieval.core import OpticalGeometry
 
 
 class Sensor(ABC):
@@ -10,9 +14,16 @@ class Sensor(ABC):
     A sensor is an object which takes in radiances at the front of an aperture, and returns backend radiances
     observed by the sensor.
     """
+
     @abstractmethod
-    def model_radiance(self, optical_geometry: OpticalGeometry, model_wavel_nm: np.array, model_geometry: Geometry,
-                       radiance: np.array, wf=None) -> radianceformat.RadianceBase:
+    def model_radiance(
+        self,
+        optical_geometry: OpticalGeometry,
+        model_wavel_nm: np.array,
+        model_geometry: Geometry,
+        radiance: np.array,
+        wf=None,
+    ) -> radianceformat.RadianceBase:
         """
         Takes in high resolution radiances at the front of the aperture and converts them to what is observed by the
         sensor.
@@ -36,7 +47,6 @@ class Sensor(ABC):
             Output L1 radiances in a format specific to the sensor.  The format is defined by `radiance_format`
 
         """
-        pass
 
     @abstractmethod
     def measurement_geometry(self, optical_geometry: OpticalGeometry):
@@ -53,7 +63,6 @@ class Sensor(ABC):
         -------
         Geometry
         """
-        pass
 
     @abstractmethod
     def measurement_wavelengths(self):
@@ -64,7 +73,6 @@ class Sensor(ABC):
         np.array
             Central wavelengths of the measurement
         """
-        pass
 
     @staticmethod
     @abstractmethod
@@ -76,4 +84,3 @@ class Sensor(ABC):
         -------
         A specialized instance of radianceformat.RadianceBase
         """
-        pass

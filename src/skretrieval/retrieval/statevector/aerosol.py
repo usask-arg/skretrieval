@@ -1,16 +1,32 @@
-from skretrieval.retrieval.statevector.profile import StateVectorProfile
-import numpy as np
+from __future__ import annotations
+
 from copy import copy
-import xarray as xr
+
+import numpy as np
 import sasktran as sk
+import xarray as xr
+
+from skretrieval.retrieval.statevector.profile import StateVectorProfile
 
 
 class AerosolGaussianPressure(StateVectorProfile):
-    def __init__(self, clim_alts: np.array, vertical_aod: float, aod_wavelength: float, layer_height: float, layer_width: float, species_name: str,
-                 optical_property: sk.OpticalProperty, prior_aod: float, prior_layer_height: float, prior_layer_width: float,
-                 prior_aod_sigma: float, prior_layer_height_sigma: float, prior_layer_width_sigma: float,
-                 background_climatology: sk.ClimatologyUserDefined
-                 ):
+    def __init__(
+        self,
+        clim_alts: np.array,
+        vertical_aod: float,
+        aod_wavelength: float,
+        layer_height: float,
+        layer_width: float,
+        species_name: str,
+        optical_property: sk.OpticalProperty,
+        prior_aod: float,
+        prior_layer_height: float,
+        prior_layer_width: float,
+        prior_aod_sigma: float,
+        prior_layer_height_sigma: float,
+        prior_layer_width_sigma: float,
+        background_climatology: sk.ClimatologyUserDefined,
+    ):
         """
         Component of the state vector that is an arbitrary aerosol type with a vmr profile that
         has a Gaussian shape in pressure space.
@@ -52,8 +68,12 @@ class AerosolGaussianPressure(StateVectorProfile):
             Climatology containing 'SKCLIMATOLOGY_PRESSURE_PA' and 'SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3'
         """
         self._background_climatology = background_climatology
-        self._background_pressure = np.asarray(self._background_climatology['SKCLIMATOLOGY_PRESSURE_PA'])
-        self._background_numberdensity = np.asarray(self._background_climatology['SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3'])
+        self._background_pressure = np.asarray(
+            self._background_climatology["SKCLIMATOLOGY_PRESSURE_PA"]
+        )
+        self._background_numberdensity = np.asarray(
+            self._background_climatology["SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3"]
+        )
 
         # State params are vertical AOD, layer height, and layer width
         self._clim_alts = clim_alts
@@ -69,7 +89,9 @@ class AerosolGaussianPressure(StateVectorProfile):
         self._prior_layer_height_sigma = prior_layer_height_sigma
         self._prior_layer_width_sigma = prior_layer_width_sigma
 
-        self._xs = optical_property.calculate_cross_sections(sk.MSIS90(), 0, 0, 10000, 54372, [self._aod_wavelength]).total[0]
+        self._xs = optical_property.calculate_cross_sections(
+            sk.MSIS90(), 0, 0, 10000, 54372, [self._aod_wavelength]
+        ).total[0]
 
         super().__init__(species_name, optical_property)
 
@@ -84,14 +106,28 @@ class AerosolGaussianPressure(StateVectorProfile):
         return inv_apriori_covariance
 
     def apriori_state(self) -> np.array:
-        return np.array([self._prior_aod, self._prior_layer_height, self._prior_layer_width])
+        return np.array(
+            [self._prior_aod, self._prior_layer_height, self._prior_layer_width]
+        )
 
     def _climatology_altitudes_and_density(self):
-        return self._clim_alts, self._nd(self._vertical_aod, self._layer_height, self._layer_width)
+        return self._clim_alts, self._nd(
+            self._vertical_aod, self._layer_height, self._layer_width
+        )
 
     def _nd(self, aod, layer_height, layer_width):
         # vmr gaussian
-        gauss = np.exp(-0.5 * ((self._background_pressure / self._background_pressure[0] - layer_height) / (2 * layer_width)) ** 2)
+        gauss = np.exp(
+            -0.5
+            * (
+                (
+                    self._background_pressure / self._background_pressure[0]
+                    - layer_height
+                )
+                / (2 * layer_width)
+            )
+            ** 2
+        )
 
         # convert to number density space
         gauss *= self._background_numberdensity
@@ -105,14 +141,26 @@ class AerosolGaussianPressure(StateVectorProfile):
         return copy(nd)
 
     def state(self) -> np.array:
-        return np.array([copy(self._vertical_aod), copy(self._layer_height), copy(self._layer_width)])
+        return np.array(
+            [
+                copy(self._vertical_aod),
+                copy(self._layer_height),
+                copy(self._layer_width),
+            ]
+        )
 
     def propagate_wf(self, radiance) -> np.ndarray:
         num_factor = 1.01
 
-        d_aod = self._nd(self._vertical_aod * num_factor, self._layer_height, self._layer_width)
-        d_height = self._nd(self._vertical_aod, self._layer_height * num_factor, self._layer_width)
-        d_width = self._nd(self._vertical_aod, self._layer_height, self._layer_width * num_factor)
+        d_aod = self._nd(
+            self._vertical_aod * num_factor, self._layer_height, self._layer_width
+        )
+        d_height = self._nd(
+            self._vertical_aod, self._layer_height * num_factor, self._layer_width
+        )
+        d_width = self._nd(
+            self._vertical_aod, self._layer_height, self._layer_width * num_factor
+        )
 
         base = self._nd(self._vertical_aod, self._layer_height, self._layer_width)
 
@@ -122,11 +170,13 @@ class AerosolGaussianPressure(StateVectorProfile):
 
         matrix = np.vstack([d_aod, d_height, d_width])
 
-        old_wf = radiance['wf_' + self.name()]
+        old_wf = radiance["wf_" + self.name()]
 
-        new_wf = old_wf @ xr.DataArray(data=matrix.T, dims=['perturbation', 'x'], coords={'perturbation': old_wf['perturbation'].values})
-
-        return new_wf
+        return old_wf @ xr.DataArray(
+            data=matrix.T,
+            dims=["perturbation", "x"],
+            coords={"perturbation": old_wf["perturbation"].to_numpy()},
+        )
 
     def update_state(self, x: np.array):
         self._vertical_aod = copy(x[0])

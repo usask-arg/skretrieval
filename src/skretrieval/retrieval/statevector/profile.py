@@ -1,12 +1,18 @@
-import numpy as np
-from skretrieval.retrieval.statevector import StateVectorElement
-from skretrieval.retrieval.tikhonov import two_dim_vertical_first_deriv, two_dim_vertical_second_deriv
-from skretrieval.util import linear_interpolating_matrix
-from copy import copy
-import sasktran as sk
+from __future__ import annotations
+
 import abc
+from copy import copy
+
 import numpy as np
+import sasktran as sk
 import xarray as xr
+
+from skretrieval.retrieval.statevector import StateVectorElement
+from skretrieval.retrieval.tikhonov import (
+    two_dim_vertical_first_deriv,
+    two_dim_vertical_second_deriv,
+)
+from skretrieval.util import linear_interpolating_matrix
 
 
 class StateVectorProfile(StateVectorElement):
@@ -35,10 +41,11 @@ class StateVectorProfile(StateVectorElement):
         """
         alts, density = self._climatology_altitudes_and_density()
         if self._species is None:
-            self._species = sk.Species(self._optical_property,
-                                       sk.ClimatologyUserDefined(alts,
-                                                                 {self._species_name: density}),
-                                       self._species_name)
+            self._species = sk.Species(
+                self._optical_property,
+                sk.ClimatologyUserDefined(alts, {self._species_name: density}),
+                self._species_name,
+            )
         else:
             self._species.climatology[self._species_name] = density
 
@@ -71,20 +78,27 @@ class StateVectorProfile(StateVectorElement):
 
 class StateVectorProfilePPM(StateVectorProfile):
     def propagate_wf(self, radiance) -> np.ndarray:
-        interp_matrix = linear_interpolating_matrix(self._altitudes_m, self._species.climatology.altitudes)
+        interp_matrix = linear_interpolating_matrix(
+            self._altitudes_m, self._species.climatology.altitudes
+        )
 
         # We have dI/dn, but we need dI/dx, so we have to sum over the deltas that each ppm delta introduces
-        backgroundstate = np.asarray(self._background_climatology['SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3'])
+        backgroundstate = np.asarray(
+            self._background_climatology["SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3"]
+        )
 
-        wf_name = 'wf_' + self.name()
+        wf_name = "wf_" + self.name()
         if wf_name not in radiance:
-            raise ValueError('WF not calculated')
+            msg = "WF not calculated"
+            raise ValueError(msg)
 
         # inlclude ppm conversion here
         new_wf = radiance[wf_name] * backgroundstate / 1e6
-        new_wf = new_wf @ xr.DataArray(data=interp_matrix, dims=['perturbation', 'x'], coords={'perturbation': radiance['perturbation'].values})
-
-        return new_wf
+        return new_wf @ xr.DataArray(
+            data=interp_matrix,
+            dims=["perturbation", "x"],
+            coords={"perturbation": radiance["perturbation"].to_numpy()},
+        )
 
     def apriori_state(self) -> np.array:
         return self._prior_ppm
@@ -92,11 +106,16 @@ class StateVectorProfilePPM(StateVectorProfile):
     def inverse_apriori_covariance(self) -> np.ndarray:
         return np.linalg.inv(self._prior_ppm_covar)
 
-    def __init__(self, altitudes_m: np.array, values_ppm: np.array, species_name: str,
-                 optical_property: sk.OpticalProperty,
-                 background_climatology: sk.ClimatologyUserDefined,
-                 prior_ppm: np.array,
-                 priori_ppm_covar: np.ndarray):
+    def __init__(
+        self,
+        altitudes_m: np.array,
+        values_ppm: np.array,
+        species_name: str,
+        optical_property: sk.OpticalProperty,
+        background_climatology: sk.ClimatologyUserDefined,
+        prior_ppm: np.array,
+        priori_ppm_covar: np.ndarray,
+    ):
         """
         State vector element which defines a vertical profile based on a secondary vertical profile of ppm values.
         The secondary profile can be on any vertical grid (coarser or equal to the regular atmospheric grid, not
@@ -134,12 +153,16 @@ class StateVectorProfilePPM(StateVectorProfile):
         return self._background_climatology.altitudes, self._convert_to_numden()
 
     def _convert_to_numden(self):
-        background_values = self._background_climatology['SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3']
+        background_values = self._background_climatology[
+            "SKCLIMATOLOGY_AIRNUMBERDENSITY_CM3"
+        ]
         background_altitudes = self._background_climatology.altitudes
 
         species_fraction = self._values_ppm / 1e6  # Convert from ppm
 
-        interp_fraction = np.interp(background_altitudes, self._altitudes_m, species_fraction)
+        interp_fraction = np.interp(
+            background_altitudes, self._altitudes_m, species_fraction
+        )
 
         return np.asarray(interp_fraction * background_values)
 
@@ -155,21 +178,28 @@ class StateVectorProfileScale(StateVectorProfile):
     def propagate_wf(self, radiance) -> np.ndarray:
         interp = np.ones((len(self._species.climatology.altitudes), 1))
 
-        wf_name = 'wf_' + self.name()
+        wf_name = "wf_" + self.name()
 
         old_wf = radiance[wf_name]
 
-        new_wf = (old_wf * self._values[np.newaxis, :] * self._scale_factor) @ xr.DataArray(data=interp, dims=['perturbation', 'x'], coords={'perturbation': old_wf['perturbation'].values})
+        return (
+            old_wf * self._values[np.newaxis, :] * self._scale_factor
+        ) @ xr.DataArray(
+            data=interp,
+            dims=["perturbation", "x"],
+            coords={"perturbation": old_wf["perturbation"].to_numpy()},
+        )
 
-        return new_wf
-
-    def __init__(self, scale_factor: float,
-                 species_name: str,
-                 optical_property: sk.OpticalProperty, altitudes_m: np.array,
-                 values: np.array,
-                 scale_factor_sigma: float = None,
-                 scale_factor_prior: float = 1.0
-                 ):
+    def __init__(
+        self,
+        scale_factor: float,
+        species_name: str,
+        optical_property: sk.OpticalProperty,
+        altitudes_m: np.array,
+        values: np.array,
+        scale_factor_sigma: float | None = None,
+        scale_factor_prior: float = 1.0,
+    ):
         """
         State vector element which defines a vertical profile based on a single scale factor of another profile
 
@@ -209,8 +239,12 @@ class StateVectorProfileScale(StateVectorProfile):
         self._internal_update()
 
     def described_state(self, stdev: np.array):
-        return xr.Dataset({'{}_scale_factor'.format(self.name()): float(self._scale_factor),
-                           '{}_scale_factor_stdev'.format(self.name()): float(stdev)})
+        return xr.Dataset(
+            {
+                f"{self.name()}_scale_factor": float(self._scale_factor),
+                f"{self.name()}_scale_factor_stdev": float(stdev),
+            }
+        )
 
     def apriori_state(self) -> np.array:
         return [copy(self._scale_factor_prior)]
@@ -225,17 +259,27 @@ class StateVectorProfileScale(StateVectorProfile):
 
 class StateVectorProfileLogND(StateVectorProfile):
     def propagate_wf(self, radiance) -> xr.Dataset:
-        wf = radiance['wf_' + self.name()]
+        wf = radiance["wf_" + self.name()]
         new_wf = wf * np.exp(self._values)[np.newaxis, np.newaxis, :]
-        return new_wf.isel(perturbation=~self._zero_mask).drop('perturbation').rename({'perturbation': 'x'})
+        return (
+            new_wf.isel(perturbation=~self._zero_mask)
+            .drop("perturbation")
+            .rename({"perturbation": "x"})
+        )
 
-    def __init__(self, altitudes_m: np.array, values: np.array, species_name: str,
-                 optical_property: sk.OpticalProperty, lowerbound: float,
-                 upperbound: float,
-                 second_order_tikhonov_factor: float,
-                 bounding_factor=1e4,
-                 zero_factor: float = 1e-20,
-                 max_update_factor: float = 5):
+    def __init__(
+        self,
+        altitudes_m: np.array,
+        values: np.array,
+        species_name: str,
+        optical_property: sk.OpticalProperty,
+        lowerbound: float,
+        upperbound: float,
+        second_order_tikhonov_factor: float,
+        bounding_factor=1e4,
+        zero_factor: float = 1e-20,
+        max_update_factor: float = 5,
+    ):
         """
         A state vector element which defines a vertical profile as the logarithm of number density.  The profile
         is bounded above and below by the upperbound and lowerbound through the use of the apriori.  A second
@@ -303,7 +347,9 @@ class StateVectorProfileLogND(StateVectorProfile):
 
         self._inverse_Sa_bounding += gamma.T @ gamma
 
-        gamma = two_dim_vertical_second_deriv(1, n, factor=self._second_order_tikhonov_factor)
+        gamma = two_dim_vertical_second_deriv(
+            1, n, factor=self._second_order_tikhonov_factor
+        )
         self._inverse_Sa = gamma.T @ gamma
 
     def state(self) -> np.array:
@@ -313,15 +359,15 @@ class StateVectorProfileLogND(StateVectorProfile):
         m_factors = np.exp(x - (self._values[~self._zero_mask]))
         m_factors[m_factors > self._max_update_factor] = self._max_update_factor
         m_factors[m_factors < 1 / self._max_update_factor] = 1 / self._max_update_factor
-        self._values[~self._zero_mask] = np.log(copy(m_factors * np.exp(self._values[~self._zero_mask])))
+        self._values[~self._zero_mask] = np.log(
+            copy(m_factors * np.exp(self._values[~self._zero_mask]))
+        )
         self._internal_update()
 
     def apriori_state(self) -> np.array:
         x_a_bounding = self._initial_state
         full_inv_S_a = self._inverse_Sa + self._inverse_Sa_bounding
-        full_x_a = np.linalg.solve(full_inv_S_a, self._inverse_Sa_bounding @ x_a_bounding)
-
-        return full_x_a
+        return np.linalg.solve(full_inv_S_a, self._inverse_Sa_bounding @ x_a_bounding)
 
     def inverse_apriori_covariance(self) -> np.ndarray:
         return self._inverse_Sa_bounding + self._inverse_Sa
@@ -332,22 +378,37 @@ class StateVectorProfileLogND(StateVectorProfile):
 
 class StateVectorProfileND(StateVectorProfile):
     def propagate_wf(self, radiance) -> xr.Dataset:
-        interp_matrix = linear_interpolating_matrix(self._altitudes_m[self._state_mask], self._altitudes_m)
-        wf_name = 'wf_' + self.name()
+        interp_matrix = linear_interpolating_matrix(
+            self._altitudes_m[self._state_mask], self._altitudes_m
+        )
+        wf_name = "wf_" + self.name()
         if wf_name not in radiance:
-            raise ValueError('WF not calculated')
+            msg = "WF not calculated"
+            raise ValueError(msg)
 
         new_wf = radiance[wf_name]
-        new_matrix = self._values[:, np.newaxis] * interp_matrix / self._values[self._state_mask][np.newaxis, :]
-        new_wf = new_wf @ xr.DataArray(data=new_matrix, dims=['perturbation', 'x'], coords={'perturbation': radiance['perturbation'].values})
+        new_matrix = (
+            self._values[:, np.newaxis]
+            * interp_matrix
+            / self._values[self._state_mask][np.newaxis, :]
+        )
+        return new_wf @ xr.DataArray(
+            data=new_matrix,
+            dims=["perturbation", "x"],
+            coords={"perturbation": radiance["perturbation"].to_numpy()},
+        )
 
-        return new_wf
-
-    def __init__(self, altitudes_m: np.array, values: np.array, species_name: str,
-                 optical_property: sk.OpticalProperty, lowerbound: float,
-                 upperbound: float,
-                 second_order_tikhonov_factor: float,
-                 max_update_factor: float = 5):
+    def __init__(
+        self,
+        altitudes_m: np.array,
+        values: np.array,
+        species_name: str,
+        optical_property: sk.OpticalProperty,
+        lowerbound: float,
+        upperbound: float,
+        second_order_tikhonov_factor: float,
+        max_update_factor: float = 5,
+    ):
         """
 
         Parameters
@@ -374,7 +435,9 @@ class StateVectorProfileND(StateVectorProfile):
         self._lowerbound = lowerbound
         self._upperbound = upperbound
 
-        self._state_mask = (self._altitudes_m > lowerbound) & (self._altitudes_m < upperbound)
+        self._state_mask = (self._altitudes_m > lowerbound) & (
+            self._altitudes_m < upperbound
+        )
 
         self._second_order_tikhonov_factor = second_order_tikhonov_factor
         self._max_update_factor = max_update_factor
@@ -391,7 +454,9 @@ class StateVectorProfileND(StateVectorProfile):
 
     def _compute_apriori_covariance(self):
         n = len(self._values[self._state_mask])
-        gamma = two_dim_vertical_second_deriv(1, n, factor=self._second_order_tikhonov_factor)
+        gamma = two_dim_vertical_second_deriv(
+            1, n, factor=self._second_order_tikhonov_factor
+        )
         self._inverse_Sa = gamma.T @ gamma
 
     def state(self) -> np.array:
@@ -401,9 +466,13 @@ class StateVectorProfileND(StateVectorProfile):
         m_factors = x / (self._values[self._state_mask])
         if self._max_update_factor is not None:
             m_factors[m_factors > self._max_update_factor] = self._max_update_factor
-            m_factors[m_factors < 1 / self._max_update_factor] = 1 / self._max_update_factor
+            m_factors[m_factors < 1 / self._max_update_factor] = (
+                1 / self._max_update_factor
+            )
 
-        m_factors = np.interp(self._altitudes_m, self._altitudes_m[self._state_mask], m_factors)
+        m_factors = np.interp(
+            self._altitudes_m, self._altitudes_m[self._state_mask], m_factors
+        )
 
         self._values = copy(m_factors * self._values)
         self._internal_update()

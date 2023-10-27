@@ -1,8 +1,11 @@
-from typing import Tuple
-import math
-import numpy as np
+from __future__ import annotations
+
 import logging
+import math
+
+import numpy as np
 import sasktran as sk
+
 from .rotationmatrix import RotationMatrix, UnitVectors
 
 
@@ -23,19 +26,36 @@ class PlatformPointing:
     The PlatformPointing class generates rotation matrices to transform between the different standard control frames as well as
     methods to mount the instrument on the platform, position the platform and rotate the platform.
     """
+
     # -----------------------------------------------------------------------------
     #           __init__
     # -----------------------------------------------------------------------------
 
     def __init__(self):
-        self._ICF_Init_PCF: RotationMatrix = RotationMatrix(array=[[1, 0, 0], [0, -1, 0], [0, 0, -1]])                  # Initial matrix to get ICF properly aligned with PCF. ICFx is +PCFx, ICFy is -PCFy and ICFz is -PCFz
-        self._PCF_Init_GCF: RotationMatrix = RotationMatrix(array=[[0, 1, 0], [1, 0, 0], [0, 0, -1]])                   # Initial matrix to get PCF properly aligned with GCF. PCF X is GCFy (due North), PCF y is GCFx (due East), PCF Z is -GCFz (upwards)
-        self._IRM: RotationMatrix = RotationMatrix()                                                                    # Instrument Rotation Matrix. Applies instrument internal mirrors and turntables tec,
-        self._ICF_to_PCF: RotationMatrix = RotationMatrix()                                                             # Rotation Matrix from Instrument Control Frame to Platform Control Frame. Applies monutnig information
-        self._PCF_to_GCF: RotationMatrix = RotationMatrix()                                                             # Rotation Matrix from Platform Control Frame to Geodetic Control Frame. E.G. Applies the Yaw, Pitch, Roll to orient the platform in local geodetic space.
-        self._GCF_to_ECEF: RotationMatrix = RotationMatrix()                                                            # Rotation Matrix to convert local geodetic coordinates to geographic geocentric. ECEF
-        self._utc: np.datetime64 = None                                                                 #: Platform pointing also stores the UTC time as a convenience
-        self._geo: sk.Geodetic = sk.Geodetic()                                                        #: An instance of sasktran Geodetic object.
+        self._ICF_Init_PCF: RotationMatrix = RotationMatrix(
+            array=[[1, 0, 0], [0, -1, 0], [0, 0, -1]]
+        )  # Initial matrix to get ICF properly aligned with PCF. ICFx is +PCFx, ICFy is -PCFy and ICFz is -PCFz
+        self._PCF_Init_GCF: RotationMatrix = RotationMatrix(
+            array=[[0, 1, 0], [1, 0, 0], [0, 0, -1]]
+        )  # Initial matrix to get PCF properly aligned with GCF. PCF X is GCFy (due North), PCF y is GCFx (due East), PCF Z is -GCFz (upwards)
+        self._IRM: RotationMatrix = (
+            RotationMatrix()
+        )  # Instrument Rotation Matrix. Applies instrument internal mirrors and turntables tec,
+        self._ICF_to_PCF: RotationMatrix = (
+            RotationMatrix()
+        )  # Rotation Matrix from Instrument Control Frame to Platform Control Frame. Applies monutnig information
+        self._PCF_to_GCF: RotationMatrix = (
+            RotationMatrix()
+        )  # Rotation Matrix from Platform Control Frame to Geodetic Control Frame. E.G. Applies the Yaw, Pitch, Roll to orient the platform in local geodetic space.
+        self._GCF_to_ECEF: RotationMatrix = (
+            RotationMatrix()
+        )  # Rotation Matrix to convert local geodetic coordinates to geographic geocentric. ECEF
+        self._utc: np.datetime64 = (
+            None  #: Platform pointing also stores the UTC time as a convenience
+        )
+        self._geo: sk.Geodetic = (
+            sk.Geodetic()
+        )  #: An instance of sasktran Geodetic object.
         self._geolocation: np.ndarray = np.zeros([3])
         self._local_west: np.ndarray = None
         self._local_south: np.ndarray = None
@@ -45,7 +65,12 @@ class PlatformPointing:
     # ------------------------------------------------------------------------------
     #           mount_instrument_on_platform
     # ------------------------------------------------------------------------------
-    def mount_instrument_on_platform(self, azimuth_degrees: float, elevation_degrees: float, roll_degrees: float = 0.0):
+    def mount_instrument_on_platform(
+        self,
+        azimuth_degrees: float,
+        elevation_degrees: float,
+        roll_degrees: float = 0.0,
+    ):
         """
         Mounts an instrument on a platform by setting up the azimuth, elevation and roll of the :ref:`icf`
         with respect to the :ref:`pcf`. Note that we try to use the aircraft definitions of
@@ -73,13 +98,22 @@ class PlatformPointing:
             is a right-handed roll around the final. Default is 0.0
         """
 
-        self._ICF_to_PCF.from_yaw_pitch_roll(math.radians(azimuth_degrees), math.radians(elevation_degrees), math.radians(roll_degrees))
+        self._ICF_to_PCF.from_yaw_pitch_roll(
+            math.radians(azimuth_degrees),
+            math.radians(elevation_degrees),
+            math.radians(roll_degrees),
+        )
 
     # ------------------------------------------------------------------------------
     #               rotate_instrument_in_icf
     # ------------------------------------------------------------------------------
 
-    def rotate_instrument_in_icf(self, azimuth_degrees: float, elevation_degrees: float, roll_degrees: float = 0.0):
+    def rotate_instrument_in_icf(
+        self,
+        azimuth_degrees: float,
+        elevation_degrees: float,
+        roll_degrees: float = 0.0,
+    ):
         """
         Sets the instrument rotation matrix so it rotates the instrument control frame, :math:`(\\hat{x}_{ICF}, \\hat{y}_{ICF}, \\hat{z}_{ICF})`,
         through the given azimuth, elevation and roll angles. This method is intended to simulate tilting mirrors and rotation stages
@@ -97,14 +131,19 @@ class PlatformPointing:
             The roll in degrees of the instrument. It is a right-handed rotation around :math:`\\hat{x}_{ICF}`. Default is 0.0
         """
 
-        self._IRM.from_azimuth_elevation_roll(math.radians(azimuth_degrees), math.radians(elevation_degrees), math.radians(roll_degrees))
+        self._IRM.from_azimuth_elevation_roll(
+            math.radians(azimuth_degrees),
+            math.radians(elevation_degrees),
+            math.radians(roll_degrees),
+        )
 
     # -----------------------------------------------------------------------------
     #           orient_platform_in_space
     # -----------------------------------------------------------------------------
 
-    def orient_platform_in_space(self, yaw_degrees: float, pitch_degrees: float, roll_degrees: float):
-
+    def orient_platform_in_space(
+        self, yaw_degrees: float, pitch_degrees: float, roll_degrees: float
+    ):
         """
         Sets the platforms yaw, pitch and roll to orient the platform in space at its location. The yaw, pitch
         and roll are applied in a geodetic system so angles are always about the local geodetic system regardless of
@@ -132,12 +171,20 @@ class PlatformPointing:
 
         """
 
-        self._PCF_to_GCF.from_yaw_pitch_roll(math.radians(yaw_degrees), math.radians(pitch_degrees), math.radians(roll_degrees))
+        self._PCF_to_GCF.from_yaw_pitch_roll(
+            math.radians(yaw_degrees),
+            math.radians(pitch_degrees),
+            math.radians(roll_degrees),
+        )
 
     # ------------------------------------------------------------------------------
     #           update_location
     # ------------------------------------------------------------------------------
-    def set_platform_location(self, xyzt: Tuple[float, float, float, np.datetime64] = None, latlonheightandt: Tuple[float, float, float, np.datetime64] = None):
+    def set_platform_location(
+        self,
+        xyzt: tuple[float, float, float, np.datetime64] | None = None,
+        latlonheightandt: tuple[float, float, float, np.datetime64] | None = None,
+    ):
         """
         Sets the location of the platform to the specified location.
 
@@ -149,21 +196,27 @@ class PlatformPointing:
             The the platform location using geodetic corodinates. The tuple is a 4 element array, [0] is latitue, [1] is longitude
             [2] is height in meters, [3] is platform_utc as float representing MJD or numpy.datetime64
         """
-        if (xyzt is not None):
+        if xyzt is not None:
             self._geo.from_xyz((xyzt[0], xyzt[1], xyzt[2]))
             self._utc = xyzt[3]
 
-        elif (latlonheightandt is not None):
-            self._geo.from_lat_lon_alt(latlonheightandt[0], latlonheightandt[1], latlonheightandt[2])
+        elif latlonheightandt is not None:
+            self._geo.from_lat_lon_alt(
+                latlonheightandt[0], latlonheightandt[1], latlonheightandt[2]
+            )
             self._utc = latlonheightandt[3]
         else:
-            logging.warning("set_platform_location, nothing done as neither xyz or latlonheight were set")
+            logging.warning(
+                "set_platform_location, nothing done as neither xyz or latlonheight were set"
+            )
 
         self._geolocation = self._geo.location
         self._local_west = self._geo.local_west
         self._local_south = self._geo.local_south
         self._local_up = self._geo.local_up
-        self._GCF_to_ECEF.from_transform_to_destination_coordinates(-self._local_west, -self._local_south, self._local_up)  #: Transform local geodetic coordinates to geographic geocentric.
+        self._GCF_to_ECEF.from_transform_to_destination_coordinates(
+            -self._local_west, -self._local_south, self._local_up
+        )  #: Transform local geodetic coordinates to geographic geocentric.
 
     # -----------------------------------------------------------------------------
     #           location
@@ -230,13 +283,19 @@ class PlatformPointing:
             A 3x3 array of column unit vectors. These unit vectors specify the desired orientation of the instrument control frame
             vectors after rotation to the :ref:`ecef`.
         """
-        B = RotationMatrix(self._PCF_Init_GCF.R                             # B is the rotation matrics from instrument to Start of geodetic control frome
-                           @ self._ICF_to_PCF.R
-                           @ self._ICF_Init_PCF.R)
+        B = RotationMatrix(
+            self._PCF_Init_GCF.R  # B is the rotation matrics from instrument to Start of geodetic control frome
+            @ self._ICF_to_PCF.R
+            @ self._ICF_Init_PCF.R
+        )
 
-        A = self._GCF_to_ECEF                                                 # A is the rotation matrix from geodetic control frome to GEO
+        A = (
+            self._GCF_to_ECEF
+        )  # A is the rotation matrix from geodetic control frome to GEO
 
-        self._PCF_to_GCF.from_rotation_matrix(A.RInv @ GEO.R @ B.RInv)       # get the platform "yaw,pitch roll " rotation matrix
+        self._PCF_to_GCF.from_rotation_matrix(
+            A.RInv @ GEO.R @ B.RInv
+        )  # get the platform "yaw,pitch roll " rotation matrix
 
     # -----------------------------------------------------------------------------
     #               convert_icf_to_ecef
@@ -265,8 +324,7 @@ class PlatformPointing:
             * v[2,:] is the :math:`\\hat{z}_{ECEF}` component.
         """
         R = self.get_icf_to_ecef_matrix()
-        vnew = R.R @ v
-        return vnew
+        return R.R @ v
 
     # ------------------------------------------------------------------------------
     #               convert_icf_to_ecef(self, v: np.ndarray)->np.ndarray:
@@ -296,13 +354,14 @@ class PlatformPointing:
             * v[2,:] is the :math:`\\hat{z}_{GCF}` (Up) component.
         """
 
-        R = (self._PCF_to_GCF.R
-             @ self._PCF_Init_GCF.R
-             @ self._ICF_to_PCF.R
-             @ self._ICF_Init_PCF.R
-             @ self._IRM.R)
-        vnew = R @ v
-        return vnew
+        R = (
+            self._PCF_to_GCF.R
+            @ self._PCF_Init_GCF.R
+            @ self._ICF_to_PCF.R
+            @ self._ICF_Init_PCF.R
+            @ self._IRM.R
+        )
+        return R @ v
 
     # -----------------------------------------------------------------------------
     #           convert_gcf_to_ecef
@@ -332,8 +391,7 @@ class PlatformPointing:
            * v[2,:] is the :math:`\\hat{z}_{ECEF}` component.
         """
 
-        vnew = self._GCF_to_ECEF.R @ v
-        return vnew
+        return self._GCF_to_ECEF.R @ v
 
     # -----------------------------------------------------------------------------
     #           get_icf_to_ecef_matrix
@@ -352,11 +410,13 @@ class PlatformPointing:
             the ECEF geocentric control frame. The matrix should be applied as :math:`\\boldsymbol{V_{GEO}} = \\boldsymbol{R} @ \\boldsymbol{V_{ICF}}`
         """
 
-        full_rotation = (self._GCF_to_ECEF.R                                                                            # 6) Convert the geodetic vectors to geocentric vectors.
-                         @ self._PCF_to_GCF.R                                                                           # 5) Apply the spatial orientation of the platform in geodetic coordinates
-                         @ self._PCF_Init_GCF.R                                                                         # 4) Rotate the platform control frame so its properly aligned with the geodetic corodinates
-                         @ self._ICF_to_PCF.R                                                                           # 3) Rotate the instrument boresight so its properly positioned on the platform
-                         @ self._ICF_Init_PCF.R                                                                         # 2) Rotate instrument control frame so it is in its initial orientation in the platform control frame
-                         @ self._IRM.R)                                                                                 # 1) Apply Instrument internal rotations due to mirrors and turntables
+        full_rotation = (
+            self._GCF_to_ECEF.R  # 6) Convert the geodetic vectors to geocentric vectors.
+            @ self._PCF_to_GCF.R  # 5) Apply the spatial orientation of the platform in geodetic coordinates
+            @ self._PCF_Init_GCF.R  # 4) Rotate the platform control frame so its properly aligned with the geodetic corodinates
+            @ self._ICF_to_PCF.R  # 3) Rotate the instrument boresight so its properly positioned on the platform
+            @ self._ICF_Init_PCF.R  # 2) Rotate instrument control frame so it is in its initial orientation in the platform control frame
+            @ self._IRM.R
+        )  # 1) Apply Instrument internal rotations due to mirrors and turntables
 
         return RotationMatrix(array=full_rotation)

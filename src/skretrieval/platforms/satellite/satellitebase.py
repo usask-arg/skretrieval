@@ -1,20 +1,24 @@
-from typing import Tuple, Union
+from __future__ import annotations
+
 from abc import abstractmethod
+from datetime import datetime, timedelta
+
 import numpy as np
 import scipy.optimize
-from datetime import datetime, timedelta
+
 import skretrieval.time.eci
+
 from ..platform.platformlocator import PlatformLocation
 
-
 # ----------------------------------------------------------------------------
-#          class SatelliteBase									2004-11-23*/
+#          class SatelliteBase                                  2004-11-23*/
 #   SatelliteBase is a base class for artificial satellites orbiting the Earth.
 #   The class depends upon derived classes to provide the calculation of eciposition and ecivelocity
 #   at any instant in time. The class uses Earth Centred Intertial coordinates using the true equator and true
 #   equinox.  Individual satellite predictors should ensure they are consistent
 #   with true equator and mean equinox in all calculations.
 # --------------------------------------------------------------------------*/
+
 
 class SatelliteBase(PlatformLocation):
     """
@@ -46,12 +50,22 @@ class SatelliteBase(PlatformLocation):
 
     def __init__(self):
         super().__init__()
-        self._m_time: datetime = None                               # The time used in the last call to self.update_eci_position
-        self._temptime: datetime = None                             # Local variable used for internal calculations, eg _zcomponent
-        self._m_orbit_number_at_start_time: int = None				# Orbit number at time *_m_start_time_of_orbit*
-        self._m_start_time_of_orbit: datetime = None		        # The Start time of orbitnumber.
-        self._m_ecivelocity: np.ndarray = np.zeros([3])             # The ECI velocity in m/s generated in the last call to self.update_eci_position
-        self._m_ecilocation: np.ndarray = np.zeros([3])             # The ECI position in meters generated in the last call to self.update_eci_position
+        self._m_time: datetime = (
+            None  # The time used in the last call to self.update_eci_position
+        )
+        self._temptime: datetime = (
+            None  # Local variable used for internal calculations, eg _zcomponent
+        )
+        self._m_orbit_number_at_start_time: int = (
+            None  # Orbit number at time *_m_start_time_of_orbit*
+        )
+        self._m_start_time_of_orbit: datetime = None  # The Start time of orbitnumber.
+        self._m_ecivelocity: np.ndarray = np.zeros(
+            [3]
+        )  # The ECI velocity in m/s generated in the last call to self.update_eci_position
+        self._m_ecilocation: np.ndarray = np.zeros(
+            [3]
+        )  # The ECI position in meters generated in the last call to self.update_eci_position
 
     # -----------------------------------------------------------------------------
     #           time
@@ -107,7 +121,7 @@ class SatelliteBase(PlatformLocation):
     #           update_position
     # -----------------------------------------------------------------------------
 
-    def update_position(self, utc: Union[datetime, np.datetime64, float]) -> np.ndarray:
+    def update_position(self, utc: datetime | (np.datetime64 | float)) -> np.ndarray:
         """
         Overloads the methods from :class:`~.PlatformLocation`. Updates the position of the satellite to the requested time.
         The geocentric ECEF/ITRF position of the satellite can be retrieved with attribute :attr:`~position`. It is
@@ -120,7 +134,9 @@ class SatelliteBase(PlatformLocation):
             The time at which to calculate the new position.
 
         """
-        ut = skretrieval.time.ut_to_datetime(utc)                                          # The satellite code is based upon datetime, so ensure we havethe right time units
+        ut = skretrieval.time.ut_to_datetime(
+            utc
+        )  # The satellite code is based upon datetime, so ensure we havethe right time units
         self.update_eci_position(ut)
         return self.position
 
@@ -128,7 +144,9 @@ class SatelliteBase(PlatformLocation):
     #           update_velocity
     # ------------------------------------------------------------------------------
 
-    def update_velocity(self, utc: Union[datetime, np.datetime64, float]) -> Union[np.ndarray, None]:
+    def update_velocity(
+        self, utc: datetime | (np.datetime64 | float)
+    ) -> np.ndarray | None:
         """
         Overloads the method from :class:`~.PlatformLocation`. Updates the velocity of the satellite to the requested time.
         The geocentric ECEF/ITRF velocity of the satellite can be retrieved with attribute :attr:`~velocity`. It is
@@ -149,11 +167,17 @@ class SatelliteBase(PlatformLocation):
     #           update_orientation
     # ------------------------------------------------------------------------------
 
-    def update_orientation(self, utc: Union[datetime, np.datetime64]) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray], None]:
+    def update_orientation(
+        self, utc: datetime | np.datetime64  # noqa: ARG002
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
         """
         Returns a platform orientation that has no modification.
         """
-        return (np.array((1.0, 0.0, 0.0)), np.array((0.0, 1.0, 0.0)), np.array((0.0, 0.0, 1.0)))
+        return (
+            np.array((1.0, 0.0, 0.0)),
+            np.array((0.0, 1.0, 0.0)),
+            np.array((0.0, 0.0, 1.0)),
+        )
 
     # -----------------------------------------------------------------------------
     #           update_eci_position
@@ -170,7 +194,8 @@ class SatelliteBase(PlatformLocation):
             Updates the ECI eciposition and ECI ecivelocity of the satellite to this Coordinated Universal Time
         """
 
-        raise Exception("SatelliteBase::update_eci_position, Do not call base class method")
+        msg = "SatelliteBase::update_eci_position, Do not call base class method"
+        raise Exception(msg)
 
     # ------------------------------------------------------------------------------
     #           period
@@ -186,7 +211,8 @@ class SatelliteBase(PlatformLocation):
         timedelta
             The period of the satellite in seconds
         """
-        raise Exception("SatelliteBase::period, Do not call base class method")
+        msg = "SatelliteBase::period, Do not call base class method"
+        raise Exception(msg)
 
     @abstractmethod
     def eccentricity(self) -> float:
@@ -199,7 +225,8 @@ class SatelliteBase(PlatformLocation):
         float
             The eccentricty of the satellite orbit in seconds
         """
-        raise Exception("SatelliteBase::period, Do not call base class method")
+        msg = "SatelliteBase::period, Do not call base class method"
+        raise Exception(msg)
 
     # -----------------------------------------------------------------------------
     #           eciposition
@@ -247,8 +274,12 @@ class SatelliteBase(PlatformLocation):
             The current UTC time of the eciposition and ecivelocity.
 
         """
-        self._m_ecilocation[:] = ecipos           # Copy the values to ensure we have 3 element arrays
-        self._m_ecivelocity[:] = ecivel           # Copy the values to ensure we have 3 element arrays
+        self._m_ecilocation[
+            :
+        ] = ecipos  # Copy the values to ensure we have 3 element arrays
+        self._m_ecivelocity[
+            :
+        ] = ecivel  # Copy the values to ensure we have 3 element arrays
         self._m_time = t
 
     # ------------------------------------------------------------------------------
@@ -271,9 +302,13 @@ class SatelliteBase(PlatformLocation):
             The Z component of the satellite ECI position. Negative means it is below the equator. Positive means it is above the equator.
         """
 
-        Tnow = self._temptime + timedelta(seconds=deltamjd)    	# Set up a new self.m_time to get satellite eciposition.
-        self.update_eci_position(Tnow)     			        # Get the satellite eciposition atthis self.m_time.
-        return self._m_ecilocation[2]         			            # and return the Z component.
+        Tnow = self._temptime + timedelta(
+            seconds=deltamjd
+        )  # Set up a new self.m_time to get satellite eciposition.
+        self.update_eci_position(
+            Tnow
+        )  # Get the satellite eciposition atthis self.m_time.
+        return self._m_ecilocation[2]  # and return the Z component.
 
     # ----------------------------------------------------------------------------
     #     nxSatelliteBase::equator_crossing
@@ -292,26 +327,34 @@ class SatelliteBase(PlatformLocation):
         datetime.datetime
             The time at which this satellite object crosses the equator
         """
-        
+
         self._temptime = utc
         ecc = self.eccentricity()
-        frac = 0.2 if ecc < 0.1 else 0.01                       # small eccentricty we can do big steps. Large eccentricity do small steps
+        frac = (
+            0.2 if ecc < 0.1 else 0.01
+        )  # small eccentricty we can do big steps. Large eccentricity do small steps
         deltat = (frac * self.period()).total_seconds()
         positiveT = (utc - self._temptime).total_seconds()
         z = -1
-        while (z < 0.0):                                      # ----  Find when Z component is positive before or equal to now.
+        while (
+            z < 0.0
+        ):  # ----  Find when Z component is positive before or equal to now.
             z = self._zcomponent(positiveT)
-            if (z < 0.0):
+            if z < 0.0:
                 positiveT = positiveT - deltat
 
-        negativeT = positiveT - deltat                          # ---- Find when Z component is negative before positiveT.
+        negativeT = (
+            positiveT - deltat
+        )  # ---- Find when Z component is negative before positiveT.
         z = 1.0
-        while (z >= 0.0):
+        while z >= 0.0:
             z = self._zcomponent(negativeT)
-            if (z >= 0.0):
+            if z >= 0.0:
                 negativeT = negativeT - deltat
 
-        crosstime = scipy.optimize.brentq(self._zcomponent, negativeT, positiveT, xtol=1.0E-12)
+        crosstime = scipy.optimize.brentq(
+            self._zcomponent, negativeT, positiveT, xtol=1.0e-12
+        )
         positiveT = self._temptime + timedelta(seconds=crosstime)
         self.update_eci_position(positiveT)
         return positiveT
@@ -319,26 +362,28 @@ class SatelliteBase(PlatformLocation):
     # -----------------------------------------------------------------------------
     #           set_orbit_number_from_last_equator_crossing
     # -----------------------------------------------------------------------------
-    def set_orbit_number_from_last_equator_crossing(self, orbitnumber: int, utc: datetime):
+    def set_orbit_number_from_last_equator_crossing(
+        self, orbitnumber: int, utc: datetime
+    ):
         """
         Sets the orbit number and calculates the start time/ascending node of the orbit.
-        
+
         Parameters
         ----------
         orbitnumber: int
-            The orbit number at time Tnow 
+            The orbit number at time Tnow
         Tnow: datetime.datetime
-            The current time. 
+            The current time.
         """
-        
+
         self._m_orbit_number_at_start_time = orbitnumber
         self._m_start_time_of_orbit = self.equator_crossing(utc)
-    
-# ----------------------------------------------------------------------------
-#        nxSatelliteBase::orbit_number		2004-11-23*/
-# --------------------------------------------------------------------------
 
-    def orbit_number(self, utc: datetime) -> Tuple[int, datetime]:
+    # ----------------------------------------------------------------------------
+    #        nxSatelliteBase::orbit_number      2004-11-23*/
+    # --------------------------------------------------------------------------
+
+    def orbit_number(self, utc: datetime) -> tuple[int, datetime]:
         """
          Calculates the orbit number at time Tnow and returns the start time
          of that orbit.

@@ -1,8 +1,11 @@
-from sasktran.climatology import ClimatologyBase
-from skretrieval.tomography.grids import OrbitalPlaneGrid
-import sasktranif.sasktranif as skif
-import sasktran as sk
+from __future__ import annotations
+
 import numpy as np
+import sasktran as sk
+import sasktranif.sasktranif as skif
+from sasktran.climatology import ClimatologyBase
+
+from skretrieval.tomography.grids import OrbitalPlaneGrid
 
 
 class OrbitalPlaneClimatology(ClimatologyBase):
@@ -25,19 +28,26 @@ class OrbitalPlaneClimatology(ClimatologyBase):
         return list(self._values.keys())
 
     def skif_object(self, **kwargs) -> skif.ISKClimatology:
-        reference_point = kwargs['engine'].model_parameters['referencepoint']
+        reference_point = kwargs["engine"].model_parameters["referencepoint"]
 
         geo = sk.Geodetic()
         geo.from_lat_lon_alt(reference_point[0], reference_point[1], reference_point[2])
 
-        local_angles, angleidx, normalandreference = self._grid.get_local_plane(geo.location)
+        local_angles, angleidx, normalandreference = self._grid.get_local_plane(
+            geo.location
+        )
 
-        local_values = dict()
+        local_values = {}
         for key, item in self._values.items():
             local_values[key] = item[angleidx, :]
 
-        user_clim = sk.ClimatologyUserDefined2D(np.rad2deg(local_angles), self._grid.altitudes,
-                                                local_values, normalandreference[3:], normalandreference[:3])
+        user_clim = sk.ClimatologyUserDefined2D(
+            np.rad2deg(local_angles),
+            self._grid.altitudes,
+            local_values,
+            normalandreference[3:],
+            normalandreference[:3],
+        )
 
         return user_clim.skif_object()
 

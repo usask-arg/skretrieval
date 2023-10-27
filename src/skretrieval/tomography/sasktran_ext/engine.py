@@ -1,15 +1,26 @@
+from __future__ import annotations
+
+from copy import copy
+
+import numpy as np
 import sasktran as sk
 import xarray as xr
-from skretrieval.tomography.grids import OrbitalPlaneGrid
-import numpy as np
-from typing import List
-from copy import copy
 from scipy import sparse
 
+from skretrieval.tomography.grids import OrbitalPlaneGrid
 
-class EngineHRTwoDim(object):
-    def __init__(self, geometry: List[sk.Geometry], atmosphere: sk.atmosphere, grid: OrbitalPlaneGrid, wavelength: np.ndarray = None,
-                 max_difference_seconds=100, common_options: dict = None, grid_spacing: float=1000):
+
+class EngineHRTwoDim:
+    def __init__(
+        self,
+        geometry: list[sk.Geometry],
+        atmosphere: sk.atmosphere,
+        grid: OrbitalPlaneGrid,
+        wavelength: np.ndarray = None,
+        max_difference_seconds=100,
+        common_options: dict | None = None,
+        grid_spacing: float = 1000,
+    ):
         """
         Radiative transfer model using the HR engine that calculates radiances for an entire orbit.
 
@@ -45,9 +56,11 @@ class EngineHRTwoDim(object):
         if common_options is not None:
             self._common_options = common_options
         else:
-            self._common_options = dict()
+            self._common_options = {}
 
-    def calculate_radiance(self, full_stokes_vector=False, stokes_orientation='geographic'):
+    def calculate_radiance(
+        self, full_stokes_vector=False, stokes_orientation="geographic"
+    ):
         """
         Calculates the radiance for the entire orbit.
 
@@ -55,69 +68,89 @@ class EngineHRTwoDim(object):
         image/scan, and weighting function keys if calculated.
         """
         # Calculate the radiance separately for every geo_segment
-        output = dict()
+        output = {}
         all_segment_radiances = []
         all_angleidx = []
         for segment in self._geo_segments:
             options = copy(self._common_options)
             new_geometry = self._combined_geometry(segment)
             geodetic = sk.Geodetic()
-            geodetic.from_lat_lon_alt(new_geometry.reference_point[0], new_geometry.reference_point[1], new_geometry.reference_point[1])
+            geodetic.from_lat_lon_alt(
+                new_geometry.reference_point[0],
+                new_geometry.reference_point[1],
+                new_geometry.reference_point[1],
+            )
 
-            local_angles, angleidx, normalandreference = self._grid.get_local_plane(geodetic.location)
-            options['opticalanglegrid'] = np.rad2deg(local_angles)
-            options['opticalnormalandreference'] = normalandreference
+            local_angles, angleidx, normalandreference = self._grid.get_local_plane(
+                geodetic.location
+            )
+            options["opticalanglegrid"] = np.rad2deg(local_angles)
+            options["opticalnormalandreference"] = normalandreference
 
             engine = sk.EngineHR(new_geometry, self._atmo, self._wavelength, options)
             engine.atmosphere_dimensions = 2
             engine.grid_spacing = self._grid_spacing
 
-            segment_radiance = engine.calculate_radiance('xarray', full_stokes_vector=full_stokes_vector,
-                                                         stokes_orientation=stokes_orientation)
+            segment_radiance = engine.calculate_radiance(
+                "xarray",
+                full_stokes_vector=full_stokes_vector,
+                stokes_orientation=stokes_orientation,
+            )
 
-            all_segment_radiances.append(segment_radiance.drop('wf_brdf'))
+            all_segment_radiances.append(segment_radiance.drop("wf_brdf"))
             all_angleidx.append(angleidx)
 
-        if self._common_options.get('calcwf', 0) == 3:
+        if self._common_options.get("calcwf", 0) == 3:
             # Calculating weighting functions and we have to convert the weighting functions to the overall grid
-            num_los = [len(ds['los']) for ds in all_segment_radiances]
+            num_los = [len(ds["los"]) for ds in all_segment_radiances]
             num_angles = len(self._grid._angles)
 
-            if 'wfheights' in self._common_options:
-                num_alts = len(self._common_options['wfheights'])
+            if "wfheights" in self._common_options:
+                num_alts = len(self._common_options["wfheights"])
             else:
                 num_alts = 100  # Default
 
             var_names = np.array(list(all_segment_radiances[0].keys()))
-            wf_names = var_names[[name.startswith('wf_') for name in var_names]]
+            wf_names = var_names[[name.startswith("wf_") for name in var_names]]
 
             for name in wf_names:
                 # Full WF matrix is going to be [num_wavel, num_los, num_angles * num_alts]
-                sparse_wf = [sparse.lil_matrix((np.nansum(num_los), num_angles * num_alts)) for w in self._wavelength]
+                sparse_wf = [
+                    sparse.lil_matrix((np.nansum(num_los), num_angles * num_alts))
+                    for w in self._wavelength
+                ]
 
-                for angleidx, segment_radiance, los_end, nl in zip(all_angleidx, all_segment_radiances, np.cumsum(num_los), num_los):
+                for angleidx, segment_radiance, los_end, nl in zip(
+                    all_angleidx, all_segment_radiances, np.cumsum(num_los), num_los
+                ):
                     # Raw wf's are stored with altitude being the fastest varying dimension
-                    pert_slice = slice(angleidx[0] * num_alts, (angleidx[-1] + 1) * num_alts)
+                    pert_slice = slice(
+                        angleidx[0] * num_alts, (angleidx[-1] + 1) * num_alts
+                    )
                     los_slice = slice(los_end - nl, los_end)
 
                     for w_idx in range(len(self._wavelength)):
-                        sparse_wf[w_idx][los_slice, pert_slice] = segment_radiance[name].values[w_idx, :, :]
-                for w_idx, wf in enumerate(sparse_wf):
+                        sparse_wf[w_idx][los_slice, pert_slice] = segment_radiance[
+                            name
+                        ].to_numpy()[w_idx, :, :]
+                for w_idx, _wf in enumerate(sparse_wf):
                     sparse_wf[w_idx] = sparse_wf[w_idx].tocsc()
                 output[name] = sparse_wf
 
                 for idx, segment in enumerate(all_segment_radiances):
                     all_segment_radiances[idx] = segment.drop([name])
 
-        concat_rad = xr.concat(all_segment_radiances, dim='los')
+        concat_rad = xr.concat(all_segment_radiances, dim="los")
 
         image_radiances = []
         cur_idx = 0
         for geo in self._geometry:
-            image_radiances.append(concat_rad.isel(los=slice(cur_idx, cur_idx + len(geo.lines_of_sight))))
+            image_radiances.append(
+                concat_rad.isel(los=slice(cur_idx, cur_idx + len(geo.lines_of_sight)))
+            )
             cur_idx += len(geo.lines_of_sight)
 
-        output['radiance'] = image_radiances
+        output["radiance"] = image_radiances
 
         return output
 
@@ -125,7 +158,7 @@ class EngineHRTwoDim(object):
         # calculate the mean mjds of every geometry object
         mjds = []
         for geo in self._geometry:
-            geo_mjd = [l.mjd for l in geo.lines_of_sight]
+            geo_mjd = [los.mjd for los in geo.lines_of_sight]
             mjds.append(np.nanmean(geo_mjd))
 
         mjds = np.asarray(mjds)
@@ -147,14 +180,20 @@ class EngineHRTwoDim(object):
         self._geo_segments = geo_segment_idx
 
     def _combined_geometry(self, segment):
-        all_lines_of_sight = np.concatenate([g.lines_of_sight for g in [self._geometry[s] for s in segment]])
+        all_lines_of_sight = np.concatenate(
+            [g.lines_of_sight for g in [self._geometry[s] for s in segment]]
+        )
 
         new_geometry = sk.Geometry()
         new_geometry.lines_of_sight = all_lines_of_sight
 
-        mean_lat = np.nanmean([l.tangent_location().latitude for l in all_lines_of_sight])
-        mean_lon = np.nanmean([l.tangent_location().longitude for l in all_lines_of_sight])
-        mean_mjd = np.nanmean([l.mjd for l in all_lines_of_sight])
+        mean_lat = np.nanmean(
+            [los.tangent_location().latitude for los in all_lines_of_sight]
+        )
+        mean_lon = np.nanmean(
+            [los.tangent_location().longitude for los in all_lines_of_sight]
+        )
+        mean_mjd = np.nanmean([los.mjd for los in all_lines_of_sight])
 
         new_reference_point = [mean_lat, mean_lon, 0, mean_mjd]
         new_geometry.reference_point = new_reference_point

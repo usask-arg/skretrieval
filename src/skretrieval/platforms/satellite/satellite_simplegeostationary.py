@@ -1,9 +1,12 @@
-from typing import Tuple
-from abc import abstractmethod
-import numpy as np
+from __future__ import annotations
+
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
+
+import numpy as np
+
 import skretrieval.time.eci
+
 from .satellitebase import SatelliteBase
 
 
@@ -26,15 +29,19 @@ class SatelliteSimpleGeostationary(SatelliteBase):
         """
 
         super().__init__()
-        radius = 42164000.0             # radius of orbit in meters
+        radius = 42164000.0  # radius of orbit in meters
         theta = math.radians(longitude_degrees)
         omega = math.pi * 2.0 / self.period()  # angular velocaity radiancs.sec
         x = radius * math.cos(theta)
         y = radius * math.sin(theta)
         vx = -radius * omega * math.sin(theta)
         vy = radius * omega * math.cos(theta)
-        self._geoposition = np.array([x, y, 0.0])           # The geocentric, geographic location of the satellite
-        self._geovelocity = np.array([vx, vy, 0.0])          # The geocentric, geographic velocity of the satellite
+        self._geoposition = np.array(
+            [x, y, 0.0]
+        )  # The geocentric, geographic location of the satellite
+        self._geovelocity = np.array(
+            [vx, vy, 0.0]
+        )  # The geocentric, geographic velocity of the satellite
 
     # -----------------------------------------------------------------------------
     #               def update_eci_position(self, platform_utc:datetime):

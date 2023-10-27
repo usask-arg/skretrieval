@@ -26,6 +26,10 @@ requirements:
     - python >= 3.10
     - numpy
     - xarray
+    - sgp4
+    - scipy
+    - jdcal
+    - numba
 
 test:
   imports:
@@ -35,9 +39,10 @@ test:
   source_files:
     - tests
   commands:
+    - pip install sasktran
     - pytest tests
 
 about:
-  home: https://github.com/usask-arg/sasktran2
+  home: https://github.com/usask-arg/skretrieval
   summary: The University of Saskatchewan Retrieval Framework
   license_file: ../license.md

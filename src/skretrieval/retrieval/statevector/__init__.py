@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import abc
+from typing import Iterable
+
 import numpy as np
 import xarray as xr
-from typing import Iterable
 
 
 class StateVectorElement(abc.ABC):
@@ -10,6 +13,7 @@ class StateVectorElement(abc.ABC):
     has a state, and a prior state/covariance associated with it.  The state vector element must also be able
     to update itself, calculate the jacobian matrix for itself.
     """
+
     @abc.abstractmethod
     def state(self) -> np.array:
         pass
@@ -37,7 +41,7 @@ class StateVectorElement(abc.ABC):
         return radiance
 
 
-class StateVector(object):
+class StateVector:
     def __init__(self, elements: Iterable[StateVectorElement]):
         """
         A full state vector made up of a collection of state vector elements.
@@ -81,10 +85,10 @@ class StateVector(object):
             all_jacobian.append(state_element.propagate_wf(radiance))
             radiance = state_element.modify_input_radiance(radiance)
 
-        new_wf = xr.concat(all_jacobian, dim='x')
-        radiance['wf'] = new_wf
+        new_wf = xr.concat(all_jacobian, dim="x")
+        radiance["wf"] = new_wf
 
         if drop_old_wf:
-            wf_names = [key for key in radiance.keys() if key.startswith('wf_')]
+            wf_names = [key for key in radiance if key.startswith("wf_")]
             radiance = radiance.drop(wf_names)
         return radiance

@@ -1,8 +1,10 @@
-from skretrieval.retrieval import RetrievalTarget
-import xarray as xr
+from __future__ import annotations
+
 import numpy as np
 import sasktran as sk
+
 from skretrieval.core.radianceformat import RadianceBase, RadianceGridded
+from skretrieval.retrieval import RetrievalTarget
 
 
 class OzoneRetrieval(RetrievalTarget):
@@ -14,30 +16,35 @@ class OzoneRetrieval(RetrievalTarget):
 
     def measurement_vector(self, l1_data: RadianceBase):
         if not isinstance(l1_data, RadianceGridded):
-            raise ValueError('Class OzoneRetrieval only supports data in the form RadianceGridded')
+            msg = "Class OzoneRetrieval only supports data in the form RadianceGridded"
+            raise ValueError(msg)
 
-        tangent_locations = l1_data.tangent_locations()
+        triplet_values = l1_data.data.sel(wavelength=600, method="nearest")
 
-        triplet_values = l1_data.data.sel(wavelength=600, method='nearest')
+        result = {}
 
-        result = dict()
-
-        result['y'] = triplet_values['radiance'].values
-        if 'wf' in triplet_values:
-            result['jacobian'] = triplet_values['wf'].values
+        result["y"] = triplet_values["radiance"].to_numpy()
+        if "wf" in triplet_values:
+            result["jacobian"] = triplet_values["wf"].to_numpy()
         return result
 
     def state_vector(self):
-        return self._ozone_species.climatology.get_parameter(self._ozone_species.species, 0, 0, self._retrieval_altitudes,
-                                                             54372)
+        return self._ozone_species.climatology.get_parameter(
+            self._ozone_species.species, 0, 0, self._retrieval_altitudes, 54372
+        )
 
     def update_state(self, x: np.ndarray):
         current_x = self.state_vector()
 
         mult_factors = x / current_x
 
-        mult_factors = np.interp(self._atmosphere_altitudes, self._retrieval_altitudes, mult_factors,
-                                 left=mult_factors[0], right=mult_factors[-1])
+        mult_factors = np.interp(
+            self._atmosphere_altitudes,
+            self._retrieval_altitudes,
+            mult_factors,
+            left=mult_factors[0],
+            right=mult_factors[-1],
+        )
 
         mult_factors[mult_factors < 0.2] = 0.2
         mult_factors[mult_factors > 5] = 5

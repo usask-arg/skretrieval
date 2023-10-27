@@ -1,9 +1,12 @@
-from typing import List, Union
+from __future__ import annotations
+
 import numpy as np
+
 import skretrieval.time as sktime
-from .rotationmatrix import RotationMatrix
-from .platform_pointing import PlatformPointing
+
 from ...core import OpticalGeometry
+from .platform_pointing import PlatformPointing
+from .rotationmatrix import RotationMatrix
 
 
 # -----------------------------------------------------------------------------
@@ -34,9 +37,15 @@ class ObservationPolicy:
         """
         Creates a new empty instance.
         """
-        self._position: List[np.ndarray] = []                  # A list [Numsamples] of  array (3) platform_ecef_positions
-        self._orientation: List[RotationMatrix] = []           # A list [Numsamples] rotation matrices
-        self._utc: List[Union[float, np.datetime64]] = []      # A list [Numsamples] of numpy.datetime64['us']
+        self._position: list[
+            np.ndarray
+        ] = []  # A list [Numsamples] of  array (3) platform_ecef_positions
+        self._orientation: list[
+            RotationMatrix
+        ] = []  # A list [Numsamples] rotation matrices
+        self._utc: list[
+            float | np.datetime64
+        ] = []  # A list [Numsamples] of numpy.datetime64['us']
 
     # -----------------------------------------------------------------------------
     #           platform_ecef_positions
@@ -143,7 +152,7 @@ class ObservationPolicy:
     # ------------------------------------------------------------------------------
     #           to_optical_geometry
     # ------------------------------------------------------------------------------
-    def to_optical_geometry(self) -> List[OpticalGeometry]:
+    def to_optical_geometry(self) -> list[OpticalGeometry]:
         """
         Converts the platform orientations defined in thos ObservationPolicy to a list of OpticalGeometry which can be
         used in retrieval code. This conversion assumes the instrument is looking along the x axis of the :ref:`icf` the instrument
@@ -162,5 +171,7 @@ class ObservationPolicy:
             look_vector = R @ np.array([1, 0, 0])
             local_up = R @ np.array([0, 0, 1])
             mjd = sktime.ut_to_mjd(self.utc()[i])
-            optical_geometry.append(OpticalGeometry(obs_pos, look_vector, local_up, mjd))
+            optical_geometry.append(
+                OpticalGeometry(obs_pos, look_vector, local_up, mjd)
+            )
         return optical_geometry
