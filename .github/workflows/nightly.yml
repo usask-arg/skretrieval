@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
 
     if: github.repository == 'usask-arg/skretrieval'
+    environment:
+      name: conda-nightly
 
     steps:
       - name: Checkout repository
