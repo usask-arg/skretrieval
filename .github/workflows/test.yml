@@ -47,3 +47,23 @@ jobs:
         shell: bash -el {0}
         run: |
           python -m pytest -v tests/
+
+  test-conda:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          submodules: true
+
+      - name: Setup Conda build environment
+        uses: mamba-org/setup-micromamba@v1
+        with:
+          environment-file: ci/conda-envs/mamba-build.yml
+
+      - name: Build Conda package
+        shell: bash -el {0}
+        run: |
+          conda mambabuild conda.recipe --output-folder pkgs/
