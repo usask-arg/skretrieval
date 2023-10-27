@@ -14,7 +14,6 @@ authors = [
 requires-python = ">=3.7"
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: Free for non-commerical use",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
