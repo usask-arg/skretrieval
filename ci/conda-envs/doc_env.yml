@@ -1,0 +1,19 @@
+channels:
+  - conda-forge
+  - usask-arg-nightly
+
+dependencies:
+  - numpy
+  - xarray
+  - sasktran2
+  - pytest
+  - numba
+  - sphinx
+  - astropy
+  - ipython
+  - jdcal
+  - sgp4
+  - jplephem
+  - pip:
+    - sphinx_rtd_theme
+    - sasktran
