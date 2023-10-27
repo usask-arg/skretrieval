@@ -9,6 +9,9 @@ from skretrieval.retrieval import ForwardModel, RetrievalTarget
 
 class OzoneRetrieval(RetrievalTarget):
     def __init__(self, ozone_species: sk.Species):
+        """
+        A test species used just for testing, not intended for real use
+        """
         self._ozone_species = ozone_species
 
         self._retrieval_altitudes = np.arange(10500, 60500, 1000)
