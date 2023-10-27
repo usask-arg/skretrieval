@@ -32,6 +32,7 @@ jobs:
       - name: Build Conda package
         shell: bash -el {0}
         run: |
+          conda config --set anaconda_upload yes
           conda mambabuild conda.recipe --output-folder pkgs/ --user usask-arg-nightly --token ${{ secrets.ANACONDA_TOKEN_NIGHTLY }}}
 
       - name: Save conda package
@@ -98,7 +99,7 @@ jobs:
 
       - uses: actions/download-artifact@v3
         with:
-          name: artifact
+          name: releases
           path: dist
 
       - name: Upload Wheels
