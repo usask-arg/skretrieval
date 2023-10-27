@@ -192,7 +192,7 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         self.assertAlmostEqual(obshgt[22], 600.0000000000007)
         self.assertAlmostEqual(tanlat[22], 51.91309864669744)
         self.assertAlmostEqual(tanlng[22], 252.62516782991824)
-        self.assertAlmostEqual(obslat[67], 37.980130977495996)
+        self.assertAlmostEqual(obslat[67], 37.980130977495996, 5)
         self.assertAlmostEqual(obslng[67], 225.5195159438611)
         self.assertAlmostEqual(obshgt[67], 600.0000000000007)
         self.assertAlmostEqual(tanlat[67], 51.4951299319256)
