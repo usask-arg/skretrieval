@@ -4,7 +4,7 @@ import numpy as np
 import sasktran as sk
 
 from skretrieval.core.radianceformat import RadianceBase, RadianceGridded
-from skretrieval.retrieval import RetrievalTarget
+from skretrieval.retrieval import ForwardModel, RetrievalTarget
 
 
 class OzoneRetrieval(RetrievalTarget):
@@ -13,6 +13,9 @@ class OzoneRetrieval(RetrievalTarget):
 
         self._retrieval_altitudes = np.arange(10500, 60500, 1000)
         self._atmosphere_altitudes = ozone_species.climatology.altitudes
+
+    def initialize(self, forward_model: ForwardModel, meas_l1: RadianceBase):
+        return super().initialize(forward_model, meas_l1)
 
     def measurement_vector(self, l1_data: RadianceBase):
         if not isinstance(l1_data, RadianceGridded):

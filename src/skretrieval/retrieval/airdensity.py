@@ -5,7 +5,7 @@ import sasktran as sk
 from scipy import constants, interpolate
 
 from skretrieval.core.radianceformat import RadianceBase, RadianceGridded
-from skretrieval.retrieval import RetrievalTarget
+from skretrieval.retrieval import ForwardModel, RetrievalTarget
 from skretrieval.retrieval.tikhonov import two_dim_vertical_second_deriv
 
 
@@ -199,3 +199,6 @@ class AirDensityRetrieval(RetrievalTarget):
             1, len(self._retrieval_altitudes), self._tikh_factor
         )
         return gamma.T @ gamma
+
+    def initialize(self, forward_model: ForwardModel, meas_l1: RadianceBase):
+        return super().initialize(forward_model, meas_l1)

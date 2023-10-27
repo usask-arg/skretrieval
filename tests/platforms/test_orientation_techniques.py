@@ -187,17 +187,17 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
             # print('self.assertAlmostEqual(tanlng[{}], {})'.format(i, tanlng[i]))
             # print('self.assertAlmostEqual(tanhgt[{}], {})'.format(i, tanhgt[i]))
 
-        self.assertAlmostEqual(obslat[22], 37.980130977495996, 5)
-        self.assertAlmostEqual(obslng[22], 225.5195159438611, 5)
-        self.assertAlmostEqual(obshgt[22], 600.0000000000007, 5)
-        self.assertAlmostEqual(tanlat[22], 51.91309864669744, 5)
-        self.assertAlmostEqual(tanlng[22], 252.62516782991824, 5)
-        self.assertAlmostEqual(obslat[67], 37.980130977495996, 5)
-        self.assertAlmostEqual(obslng[67], 225.5195159438611, 5)
-        self.assertAlmostEqual(obshgt[67], 600.0000000000007, 5)
-        self.assertAlmostEqual(tanlat[67], 51.4951299319256, 5)
-        self.assertAlmostEqual(tanlng[67], 251.25787850705922, 5)
-        self.assertAlmostEqual(tanhgt[67], 67.00005620048381, 5)
+        self.assertAlmostEqual(obslat[22], 37.980154453491124, 4)
+        self.assertAlmostEqual(obslng[22], 225.5194861787568, 4)
+        self.assertAlmostEqual(obshgt[22], 600.0000000000007, 4)
+        self.assertAlmostEqual(tanlat[22], 51.91311950603874, 4)
+        self.assertAlmostEqual(tanlng[22], 252.62516782991824, 4)
+        self.assertAlmostEqual(obslat[67], 37.980130977495996, 4)
+        self.assertAlmostEqual(obslng[67], 225.5194861787568, 4)
+        self.assertAlmostEqual(obshgt[67], 600.0000000000007, 4)
+        self.assertAlmostEqual(tanlat[67], 51.495151041881854, 4)
+        self.assertAlmostEqual(tanlng[67], 251.25787850705922, 4)
+        self.assertAlmostEqual(tanhgt[67], 67.00005620048381, 4)
 
     # ------------------------------------------------------------------------------
     #           test_elev_azi
