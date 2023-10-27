@@ -13,7 +13,7 @@ source:
 build:
   noarch: python
   number: {{ describe_number }}
-  string: py_{{ py_version}}_{{ describe_hash }}_{{ describe_number }}
+  string: {{ describe_hash }}_{{ describe_number }}
   script:
     - {{ PYTHON }} -m pip install . --no-deps -vvv
 
