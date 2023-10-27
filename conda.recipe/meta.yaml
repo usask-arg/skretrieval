@@ -19,11 +19,11 @@ build:
 
 requirements:
   host:
-    - python >=3.10
+    - {{ PYTHON }}
     - pip
     - setuptools-scm
   run:
-    - python >=3.10
+    - {{ PYTHON }}
     - numpy
     - xarray
     - sgp4
