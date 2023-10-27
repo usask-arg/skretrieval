@@ -1,0 +1,9 @@
+channels:
+  - conda-forge
+  - usask-arg-nightly
+
+dependencies:
+  - numpy
+  - xarray
+  - sasktran2
+  - pytest

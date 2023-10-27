@@ -1,0 +1,49 @@
+{% set version = environ.get('GIT_DESCRIBE_TAG', '0.0.0.dev').lstrip('v') %}
+{% set describe_number = environ.get('GIT_DESCRIBE_NUMBER', '0') %}
+{% set describe_hash = environ.get('GIT_DESCRIBE_HASH', 'untagged') %}
+{% set py_version = environ['CONDA_PY'] %}
+
+package:
+  name: skretrieval
+  version: {{ version }}
+
+source:
+  git_url: ../
+
+build:
+  binary_relocation: true
+  number: {{ describe_number }}
+  string: py_{{ py_version}}_{{ describe_hash }}_{{ describe_number }}
+  script:
+    - {{ PYTHON }} -m pip install . --no-deps -vvv
+
+requirements:
+  host:
+    - python {{ python }}
+    - pip
+    - setuptools-scm
+  run:
+    - python {{ python }}
+    - numpy
+    - xarray
+    - sgp4
+    - scipy
+    - jdcal
+    - astropy
+    - numba
+
+test:
+  imports:
+    - skretrieval
+  requires:
+    - pytest
+  source_files:
+    - tests
+  commands:
+    - pip install sasktran
+    - pytest tests
+
+about:
+  home: https://github.com/usask-arg/skretrieval
+  summary: The University of Saskatchewan Retrieval Framework
+  license_file: ../license.md

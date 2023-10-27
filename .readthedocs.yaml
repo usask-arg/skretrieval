@@ -1,0 +1,17 @@
+version: 2
+
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "mambaforge-22.9"
+
+  jobs:
+    pre_build:
+      - pip install .
+      - python -c "import sasktran2 as sk; sk.appconfig.download_standard_databases()"
+
+sphinx:
+   configuration: docs/source/conf.py
+
+conda:
+  environment: ci/conda-envs/doc_env.yml
