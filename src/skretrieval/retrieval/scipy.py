@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-import logging
-from copy import copy
-
 import numpy as np
 from scipy import sparse
-from skretrieval.core.radianceformat import RadianceBase
-
-from skretrieval.retrieval import ForwardModel, Minimizer, RetrievalTarget
-
-from scipy.optimize._optimize import MemoizeJac
 from scipy.optimize import least_squares, minimize
-from scipy.linalg import block_diag
+from scipy.optimize._optimize import MemoizeJac
+
+from skretrieval.core.radianceformat import RadianceBase
+from skretrieval.retrieval import ForwardModel, Minimizer, RetrievalTarget
 
 
 class SciPyMinimizer(Minimizer):
@@ -103,11 +98,9 @@ class SciPyMinimizer(Minimizer):
             Sy = sparse.csc_matrix(sparse.eye(len(y_meas), len(y_meas)))
             inv_Sy = sparse.csc_matrix(sparse.eye(len(y_meas), len(y_meas)))
 
-        y_scaler = sparse.diags(1 / np.sqrt(inv_Sy.diagonal()))
         y_scaler_inv = sparse.diags(np.sqrt(inv_Sy.diagonal()))
 
         x_scaler_inv = np.linalg.cholesky(inv_Sa)
-        # x_scaler_inv = np.eye(len(x_a))
         x_scaler = np.linalg.inv(x_scaler_inv)
 
         y_meas = y_scaler_inv @ y_meas
@@ -137,9 +130,13 @@ class SciPyMinimizer(Minimizer):
         fun = MemoizeJac(residual_fun)
         jac = fun.derivative
 
-        bounds = (lb, ub) if self._include_bounds else (np.ones_like(lb)*(-np.inf), np.ones_like(ub)*np.inf)
+        bounds = (
+            (lb, ub)
+            if self._include_bounds
+            else (np.ones_like(lb) * (-np.inf), np.ones_like(ub) * np.inf)
+        )
 
-        res = least_squares(
+        return least_squares(
             fun,
             x0=x_scaler_inv @ initial_guess,
             jac=jac,
@@ -153,8 +150,6 @@ class SciPyMinimizer(Minimizer):
             ftol=self._ftol,
             bounds=bounds,
         )
-
-        return res
 
 
 class SciPyMinimizerGrad(Minimizer):
@@ -170,8 +165,6 @@ class SciPyMinimizerGrad(Minimizer):
         ### Get the prior values
         x_a = retrieval_target.apriori_state()
         initial_guess = retrieval_target.state_vector()
-        lb = retrieval_target.lower_bound()
-        ub = retrieval_target.upper_bound()
 
         inv_Sa = retrieval_target.inverse_apriori_covariance()
 
@@ -208,7 +201,6 @@ class SciPyMinimizerGrad(Minimizer):
             Sy = sparse.csc_matrix(sparse.eye(len(y_meas), len(y_meas)))
             inv_Sy = sparse.csc_matrix(sparse.eye(len(y_meas), len(y_meas)))
 
-        y_scaler = sparse.diags(1 / np.sqrt(inv_Sy.diagonal()))
         y_scaler_inv = sparse.diags(np.sqrt(inv_Sy.diagonal()))
 
         x_scaler_inv = np.linalg.cholesky(inv_Sa)
@@ -240,9 +232,7 @@ class SciPyMinimizerGrad(Minimizer):
         fun = MemoizeJac(residual_fun)
         hess = fun.derivative
 
-        bounds = [(l, u) for l, u in zip(lb, ub)]
-
-        res = minimize(
+        return minimize(
             fun,
             x0=x_scaler_inv @ initial_guess,
             jac=True,
@@ -250,5 +240,3 @@ class SciPyMinimizerGrad(Minimizer):
             options={"disp": True, "maxiter": 30},
             method="trust-exact",
         )
-
-        return res

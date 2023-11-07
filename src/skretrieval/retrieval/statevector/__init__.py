@@ -13,6 +13,7 @@ class StateVectorElement(abc.ABC):
     has a state, and a prior state/covariance associated with it.  The state vector element must also be able
     to update itself, calculate the jacobian matrix for itself.
     """
+
     @abc.abstractmethod
     def state(self) -> np.array:
         pass

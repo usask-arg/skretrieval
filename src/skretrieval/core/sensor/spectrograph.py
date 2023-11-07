@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 from copy import copy
 
 import numpy as np
 import xarray as xr
-from sasktran import Geometry, LineOfSight
 
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import LineShape
-from skretrieval.core.sensor import Sensor
 from skretrieval.core.sasktranformat import SASKTRANRadiance
-
+from skretrieval.core.sensor import Sensor
 
 
 class Spectrograph(Sensor):
@@ -51,9 +48,7 @@ class Spectrograph(Sensor):
 
         self._spectral_native_coordinate = spectral_native_coordinate
 
-    def _construct_interpolators(
-        self, orientation, los_vectors, model_spectral_grid
-    ):
+    def _construct_interpolators(self, orientation, los_vectors, model_spectral_grid):
         x_axis = np.array(orientation.look_vector)
         vert_normal = np.cross(np.array(x_axis), np.array(orientation.local_up))
         vert_normal = vert_normal / np.linalg.norm(vert_normal)
@@ -62,11 +57,13 @@ class Spectrograph(Sensor):
         horiz_y_axis = vert_normal
 
         horiz_angle = []
-        vert_angle = np.arctan2(np.dot(los_vectors, vert_y_axis),
-                                np.dot(los_vectors, x_axis))
+        vert_angle = np.arctan2(
+            np.dot(los_vectors, vert_y_axis), np.dot(los_vectors, x_axis)
+        )
 
-        horiz_angle = np.arctan2(np.dot(los_vectors, horiz_y_axis),
-                                 np.dot(los_vectors, x_axis))
+        horiz_angle = np.arctan2(
+            np.dot(los_vectors, horiz_y_axis), np.dot(los_vectors, x_axis)
+        )
 
         horiz_interpolator = self._horiz_fov.integration_weights(
             0, np.array(horiz_angle)
@@ -98,11 +95,17 @@ class Spectrograph(Sensor):
         orientation: OpticalGeometry,
     ) -> radianceformat.RadianceGridded:
         wavel_interp, los_interp = self._construct_interpolators(
-            orientation, radiance.data["look_vectors"].to_numpy(), radiance.data["wavelength_nm"].to_numpy()
+            orientation,
+            radiance.data["look_vectors"].to_numpy(),
+            radiance.data["wavelength_nm"].to_numpy(),
         )
 
         modelled_radiance = np.einsum(
-            "ij,jk...,kl", wavel_interp, radiance.data["radiance"].to_numpy(), los_interp, optimize=True
+            "ij,jk...,kl",
+            wavel_interp,
+            radiance.data["radiance"].to_numpy(),
+            los_interp,
+            optimize=True,
         )
 
         data = xr.Dataset(
@@ -126,17 +129,22 @@ class Spectrograph(Sensor):
         for key in list(radiance.data):
             if key.startswith("wf"):
                 modelled_wf = np.einsum(
-                    "ij,ljk,km->iml", wavel_interp, radiance.data[key].to_numpy(), los_interp, optimize=True
+                    "ij,ljk,km->iml",
+                    wavel_interp,
+                    radiance.data[key].to_numpy(),
+                    los_interp,
+                    optimize=True,
                 )
 
-                data[key] = (["wavelength", "los", radiance.data[key].dims[0]], modelled_wf)
+                data[key] = (
+                    ["wavelength", "los", radiance.data[key].dims[0]],
+                    modelled_wf,
+                )
 
         return radianceformat.RadianceGridded(data)
 
     def radiance_format(self) -> type[radianceformat.RadianceGridded]:
         return radianceformat.RadianceGridded
-
-
 
 
 class SpectrographOnlySpectral(Sensor):
@@ -166,10 +174,7 @@ class SpectrographOnlySpectral(Sensor):
 
         self._spectral_native_coordinate = spectral_native_coordinate
 
-    def _construct_interpolators(
-        self, model_spectral_grid
-    ):
-
+    def _construct_interpolators(self, model_spectral_grid):
         if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
             wavel_interp = []
             for cw, p in zip(self._wavelength_nm, self._pixel_shape):
@@ -186,14 +191,17 @@ class SpectrographOnlySpectral(Sensor):
     def model_radiance(
         self,
         radiance: SASKTRANRadiance,
-        orientation: OpticalGeometry,
+        orientation: OpticalGeometry,  # noqa: ARG002
     ) -> radianceformat.RadianceGridded:
         wavel_interp = self._construct_interpolators(
             radiance.data["wavelength_nm"].to_numpy()
         )
 
         modelled_radiance = np.einsum(
-            "ij,jk...", wavel_interp, radiance.data["radiance"].to_numpy(), optimize=True
+            "ij,jk...",
+            wavel_interp,
+            radiance.data["radiance"].to_numpy(),
+            optimize=True,
         )
 
         data = xr.Dataset(
@@ -212,10 +220,16 @@ class SpectrographOnlySpectral(Sensor):
         for key in list(radiance.data):
             if key.startswith("wf"):
                 modelled_wf = np.einsum(
-                    "ij,ljk->ikl", wavel_interp, radiance.data[key].to_numpy(), optimize=True
+                    "ij,ljk->ikl",
+                    wavel_interp,
+                    radiance.data[key].to_numpy(),
+                    optimize=True,
                 )
 
-                data[key] = (["wavelength", "los", radiance.data[key].dims[0]], modelled_wf)
+                data[key] = (
+                    ["wavelength", "los", radiance.data[key].dims[0]],
+                    modelled_wf,
+                )
 
         return radianceformat.RadianceGridded(data)
 

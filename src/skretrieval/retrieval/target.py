@@ -62,7 +62,9 @@ class GenericTarget(RetrievalTarget):
         for state_element in self._state_vector.state_elements:
             inv_covar.append(state_element.inverse_apriori_covariance())
 
-        return self._map_inv_Sa_by_dinternal(self.state_vector(), block_diag(*inv_covar))
+        return self._map_inv_Sa_by_dinternal(
+            self.state_vector(), block_diag(*inv_covar)
+        )
 
     def _map_bounded_to_internal(self, x: np.array) -> np.array:
         """
@@ -90,7 +92,10 @@ class GenericTarget(RetrievalTarget):
 
         internal_x[no_map] = x[no_map]
 
-        internal_x[both_bounds] = np.arcsin(2 * (x[both_bounds] - lb[both_bounds]) / (ub[both_bounds] - lb[both_bounds]) - 1)
+        internal_x[both_bounds] = np.arcsin(
+            2 * (x[both_bounds] - lb[both_bounds]) / (ub[both_bounds] - lb[both_bounds])
+            - 1
+        )
 
         return internal_x
 
@@ -120,7 +125,10 @@ class GenericTarget(RetrievalTarget):
 
         bounded_x[no_map] = x[no_map]
 
-        bounded_x[both_bounds] = lb[both_bounds] + (np.sin(x[both_bounds]) + 1) * (ub[both_bounds] - lb[both_bounds]) / 2
+        bounded_x[both_bounds] = (
+            lb[both_bounds]
+            + (np.sin(x[both_bounds]) + 1) * (ub[both_bounds] - lb[both_bounds]) / 2
+        )
 
         return bounded_x
 
@@ -150,7 +158,9 @@ class GenericTarget(RetrievalTarget):
         both_bounds = (lb != -np.inf) & (ub != np.inf)
 
         mapping[no_map] = 1
-        mapping[both_bounds] = np.cos(x[both_bounds]) * (ub[both_bounds] - lb[both_bounds]) / 2
+        mapping[both_bounds] = (
+            np.cos(x[both_bounds]) * (ub[both_bounds] - lb[both_bounds]) / 2
+        )
 
         return K @ np.diag(mapping)
 
@@ -183,9 +193,23 @@ class GenericTarget(RetrievalTarget):
 
         mapping[no_map] = 1
 
-        mapping[both_bounds] = 2 / ((ub[both_bounds] - lb[both_bounds]) * np.sqrt(1 - (1 - (2*(xb[both_bounds] - lb[both_bounds]) / (ub[both_bounds] - lb[both_bounds])))**2))
+        mapping[both_bounds] = 2 / (
+            (ub[both_bounds] - lb[both_bounds])
+            * np.sqrt(
+                1
+                - (
+                    1
+                    - (
+                        2
+                        * (xb[both_bounds] - lb[both_bounds])
+                        / (ub[both_bounds] - lb[both_bounds])
+                    )
+                )
+                ** 2
+            )
+        )
 
-        return np.diag(1/mapping) @ inv_Sa @ np.diag(1/mapping)
+        return np.diag(1 / mapping) @ inv_Sa @ np.diag(1 / mapping)
 
     def __init__(self, state_vector: StateVector, rescale_state_elements: bool = False):
         """

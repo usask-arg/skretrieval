@@ -174,9 +174,9 @@ class Rodgers(Minimizer):
 
         if self._apply_cholesky_scaling:
             x_scaler_inv = sparse.diags(np.sqrt(inv_Sa.diagonal()))
-            y_scaler = sparse.diags(1/np.sqrt(inv_Sy.diagonal()))
+            y_scaler = sparse.diags(1 / np.sqrt(inv_Sy.diagonal()))
             y_scaler_inv = sparse.diags(np.sqrt(inv_Sy.diagonal()))
-            x_scaler = sparse.diags(1/np.sqrt(inv_Sa.diagonal()))
+            x_scaler = sparse.diags(1 / np.sqrt(inv_Sa.diagonal()))
         else:
             x_scaler_inv = sparse.eye(len(x_a))
             x_scaler = x_scaler_inv

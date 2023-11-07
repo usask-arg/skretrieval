@@ -8,7 +8,9 @@ def geodetic() -> sk.Geodetic:
     return sk.Geodetic("wgs84")
 
 
-def target_lat_lon_alt(los_vector: np.array, obs_position: np.array) -> tuple[float, float, float]:
+def target_lat_lon_alt(
+    los_vector: np.array, obs_position: np.array
+) -> tuple[float, float, float]:
     """
     Parameters
     ----------
