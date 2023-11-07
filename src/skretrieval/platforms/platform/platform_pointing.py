@@ -4,7 +4,8 @@ import logging
 import math
 
 import numpy as np
-import sasktran as sk
+
+from skretrieval.geodetic import geodetic
 
 from .rotationmatrix import RotationMatrix, UnitVectors
 
@@ -53,9 +54,7 @@ class PlatformPointing:
         self._utc: np.datetime64 = (
             None  #: Platform pointing also stores the UTC time as a convenience
         )
-        self._geo: sk.Geodetic = (
-            sk.Geodetic()
-        )  #: An instance of sasktran Geodetic object.
+        self._geo = geodetic()  #: An instance of sasktran Geodetic object.
         self._geolocation: np.ndarray = np.zeros([3])
         self._local_west: np.ndarray = None
         self._local_south: np.ndarray = None

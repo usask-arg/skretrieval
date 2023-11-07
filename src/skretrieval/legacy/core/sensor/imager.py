@@ -6,14 +6,14 @@ from sasktran import Geometry, LineOfSight
 
 from skretrieval.core.lineshape import LineShape
 from skretrieval.core.radianceformat import RadianceSpectralImage
-from skretrieval.core.sensor import OpticalGeometry, Sensor
-from skretrieval.core.sensor.spectrograph import Spectrograph, SpectrographFast
+from skretrieval.legacy.core.sensor import OpticalGeometry, Sensor
+from skretrieval.legacy.core.sensor.spectrograph import Spectrograph
 
 
 class SpectralImager(Sensor):
     """
     Basic ideal instrument for spectral images on a rectangular 2d grid.
-    Contains an array of SpectrographFast instances to do the calculation for each pixel.
+    Contains an array of Spectrograph instances to do the calculation for each pixel.
 
     Parameters
     ----------
@@ -67,7 +67,7 @@ class SpectralImager(Sensor):
         for _i in range(self._num_columns):
             for _j in range(self._num_rows):
                 pixels.append(
-                    SpectrographFast(
+                    Spectrograph(
                         wavelength_nm=wavelength_nm,
                         pixel_shape=spectral_lineshape,
                         vert_fov=pixel_vert_fov,

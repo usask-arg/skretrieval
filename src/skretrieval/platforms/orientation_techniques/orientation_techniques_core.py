@@ -9,8 +9,8 @@ if TYPE_CHECKING:
     from ..platform import Platform
 
 import numpy as np
-import sasktran as sk
 
+from skretrieval.geodetic import geodetic
 from skretrieval.time import ut_to_datetime64
 
 from ..platform.rotationmatrix import UnitVectors
@@ -36,7 +36,7 @@ from .standard_orientation_techniques import (
 # ------------------------------------------------------------------------------
 class PointingAlgorithms:
     def __init__(self, platform: Platform):
-        self._geo = sk.Geodetic()
+        self._geo = geodetic()
         self.platform: Platform = platform
 
     # ------------------------------------------------------------------------------

@@ -25,12 +25,20 @@ class StateVectorElement(abc.ABC):
     def apriori_state(self) -> np.array:
         return np.zeros_like(self.state())
 
+    def lower_bound(self) -> np.array:
+        n = len(self.state())
+        return np.ones(n) * (-np.inf)
+
+    def upper_bound(self) -> np.array:
+        n = len(self.state())
+        return np.ones(n) * (np.inf)
+
     @abc.abstractmethod
     def name(self) -> str:
         pass
 
     @abc.abstractmethod
-    def propagate_wf(self, radiance) -> np.ndarray:
+    def propagate_wf(self, radiance: xr.Dataset) -> xr.Dataset:
         pass
 
     @abc.abstractmethod

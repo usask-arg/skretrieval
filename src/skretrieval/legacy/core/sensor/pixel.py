@@ -7,7 +7,7 @@ from sasktran import Geometry, LineOfSight
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import LineShape
-from skretrieval.core.sensor import Sensor
+from skretrieval.legacy.core.sensor import Sensor
 
 
 class Pixel(Sensor):
