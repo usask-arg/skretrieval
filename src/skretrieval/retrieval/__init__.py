@@ -81,8 +81,7 @@ class RetrievalTarget(ABC):
             Inverse of the apriori covariance matrix.  If no apriori is used return None.
         """
 
-    @abstractmethod
-    def initialize(self, forward_model: ForwardModel, meas_l1: RadianceBase):
+    def initialize(self, forward_model: ForwardModel, meas_l1: RadianceBase):  # noqa: B027
         """
         Called at the beginning of the retrieval and can be used to initialize parameters
 

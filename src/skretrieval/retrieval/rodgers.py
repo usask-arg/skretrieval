@@ -20,6 +20,7 @@ class Rodgers(Minimizer):
         convergence_factor: float = 1,
         convergence_check_method="linear",
         lm_damping_method="fletcher",
+        apply_cholesky_scaling=False,
     ):
         """
         Implements the standard inverse problem method described in "Inverse Methods for Atmospheric Sounding"
@@ -51,6 +52,9 @@ class Rodgers(Minimizer):
             One of 'fletcher', 'prior', or 'identity'.  If 'fletcher', the LM damping term will be
             lm_damping * diag(K^T inv_Sy K).  If 'prior', the lm damping is lm_damping * inv_Sa.
             If 'identity' the damping is lm_damping * identity. Default is 'fletcher'
+        apply_cholesky_scaling: bool, optional
+            If True, then attempts will be made to rescale the state vector and measurement vectors to a more
+            numerically suitable space
         """
         self._max_iter = max_iter
         self._lm_damping = lm_damping
@@ -60,6 +64,7 @@ class Rodgers(Minimizer):
         self._convergence_factor = convergence_factor
         self._convergence_check_method = convergence_check_method
         self._lm_damping_method = lm_damping_method
+        self._apply_cholesky_scaling = apply_cholesky_scaling
 
     @staticmethod
     def _measurement_parameters(retrieval_target: RetrievalTarget, measurement_l1):
@@ -166,14 +171,34 @@ class Rodgers(Minimizer):
         chi_sq_prev = None
         best_x = retrieval_target.state_vector()
         best_chi_sq = 1e99
+
+        if self._apply_cholesky_scaling:
+            x_scaler_inv = sparse.diags(np.sqrt(inv_Sa.diagonal()))
+            y_scaler = sparse.diags(1/np.sqrt(inv_Sy.diagonal()))
+            y_scaler_inv = sparse.diags(np.sqrt(inv_Sy.diagonal()))
+            x_scaler = sparse.diags(1/np.sqrt(inv_Sa.diagonal()))
+        else:
+            x_scaler_inv = sparse.eye(len(x_a))
+            x_scaler = x_scaler_inv
+            y_scaler = sparse.eye(len(y_meas))
+            y_scaler_inv = sparse.eye(len(y_meas))
+
+        y_meas = y_scaler_inv @ y_meas
+
+        inv_Sa = x_scaler @ inv_Sa @ x_scaler
+        inv_Sy = y_scaler @ inv_Sy @ y_scaler
+        x_a = x_scaler_inv @ x_a
+
         for iter_idx in range(self._max_iter):
-            x = retrieval_target.state_vector()
+            x = x_scaler_inv @ retrieval_target.state_vector()
             forward_l1 = forward_model.calculate_radiance()
 
             y_ret_dict = retrieval_target.measurement_vector(forward_l1)
 
-            K = y_ret_dict["jacobian"][good_meas, :]
-            y_ret = y_ret_dict["y"][good_meas]
+            K = y_ret_dict["jacobian"]
+
+            K = y_scaler_inv @ K[good_meas, :] @ x_scaler
+            y_ret = y_scaler_inv @ y_ret_dict["y"][good_meas]
 
             ys.append(y_ret_dict["y"])
 
@@ -242,7 +267,7 @@ class Rodgers(Minimizer):
                 except np.linalg.LinAlgError:
                     delta_x_without_lm = np.linalg.lstsq(A_without_lm, B)[0]
 
-            x_new = x + delta_x
+            x_new = x_scaler @ (x + delta_x)
 
             chi_sq_only_meas = (y_meas - y_ret).T @ inv_Sy @ (y_meas - y_ret)
             chi_sq = chi_sq_only_meas + (x_a - x).T @ inv_Sa @ (x_a - x)
@@ -283,7 +308,7 @@ class Rodgers(Minimizer):
 
             dcost = (
                 delta_x_without_lm
-                @ (K.T @ inv_Sy @ (y_meas - y_ret) + inv_Sa @ (x - x_a))
+                @ (K.T @ inv_Sy @ (y_meas - y_ret) + inv_Sa @ (x_a - x))
                 / len(x)
             )
             logging.info("", extra={"dcost": dcost})
@@ -293,7 +318,7 @@ class Rodgers(Minimizer):
                 if self._iterative_update_lm:
                     self._lm_damping *= self._lm_change_factor**2
                 if self._retreat_lm:
-                    retrieval_target.update_state(best_x)
+                    retrieval_target.update_state(x_scaler @ best_x)
                 logging.info(
                     "Iteration was worse increasing LM factor",
                     extra={"lm_damping": self._lm_damping},
@@ -344,6 +369,10 @@ class Rodgers(Minimizer):
                     x_a, inv_Sa, initial_guess = self._apriori_parameters(
                         retrieval_target
                     )
+
+                    x_a = x_scaler_inv @ x_a
+
+                    inv_Sa = x_scaler @ inv_Sa @ x_scaler
                 if retrieval_target.measurement_vector_allowed_to_change():
                     (
                         y_meas_dict,
@@ -352,6 +381,8 @@ class Rodgers(Minimizer):
                         inv_Sy,
                         good_meas,
                     ) = self._measurement_parameters(retrieval_target, measurement_l1)
+                    y_meas = y_scaler_inv @ y_meas
+                    inv_Sy = y_scaler @ inv_Sy @ y_scaler
 
         if self._max_iter > 0:
             # Calculate the solution covariance and averaging kernels

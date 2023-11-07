@@ -7,7 +7,7 @@ import sasktran as sk
 
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import DeltaFunction, Gaussian
-from skretrieval.core.sensor.spectrograph import Spectrograph
+from skretrieval.legacy.core.sensor.spectrograph import Spectrograph
 
 
 class TestSpectrographIntegration(unittest.TestCase):

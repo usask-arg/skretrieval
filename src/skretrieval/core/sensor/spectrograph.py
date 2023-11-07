@@ -11,22 +11,21 @@ import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import LineShape
 from skretrieval.core.sensor import Sensor
-from skretrieval.core.sensor.pixel import Pixel
+from skretrieval.core.sasktranformat import SASKTRANRadiance
+
 
 
 class Spectrograph(Sensor):
-    """
-    A spectrograph created from an array of Pixels
-    """
-
     def __init__(
         self,
         wavelength_nm: np.array,
-        pixel_shape: LineShape,
+        pixel_shape: list[LineShape],
         vert_fov: LineShape,
         horiz_fov: LineShape,
+        spectral_native_coordinate: str = "wavelength_nm",
     ):
         """
+        A spectrograph is a 1D array of pixels
 
         Parameters
         ----------
@@ -39,181 +38,189 @@ class Spectrograph(Sensor):
         horiz_fov: LineShape
             Horizontal field of view
         """
-        self._pixels = []
 
-        if isinstance(pixel_shape, Iterable):
-            for w, p_shape in zip(wavelength_nm, pixel_shape):
-                self._pixels.append(Pixel(w, p_shape, vert_fov, horiz_fov))
-        else:
-            for w in wavelength_nm:
-                self._pixels.append(Pixel(w, pixel_shape, vert_fov, horiz_fov))
+        self._wavelength_nm = wavelength_nm
+        self._wavenumber_cminv = 1e7 / wavelength_nm
+        self._pixel_shape = pixel_shape
 
-        self.wavelength_nm = wavelength_nm
-
-    def measurement_geometry(self, optical_geometry: OpticalGeometry):
-        return [
-            LineOfSight(
-                optical_geometry.mjd,
-                optical_geometry.observer,
-                optical_geometry.look_vector,
-            )
-        ]
-
-    def model_radiance(
-        self,
-        optical_geometry: OpticalGeometry,
-        model_wavel_nm: np.array,
-        model_geometry: Geometry,
-        radiance: np.array,
-        wf=None,
-    ):
-        data = xr.concat(
-            [
-                p.model_radiance(
-                    optical_geometry, model_wavel_nm, model_geometry, radiance, wf
-                ).data
-                for p in self._pixels
-            ],
-            dim="wavelength",
-            data_vars="minimal",
-        )
-
-        return radianceformat.RadianceGridded(data)
-
-    @staticmethod
-    def radiance_format():
-        return radianceformat.RadianceGridded
-
-    def measurement_wavelengths(self):
-        return self.wavelength_nm
-
-    def required_wavelengths(self, res_nm: float) -> np.array:
-        """
-        Recommended wavelengths for high resolution calculations
-
-        Parameters
-        ----------
-        res_nm: float
-            Resolution in nm
-
-        Returns
-        -------
-        np.array
-        """
-        lower_bounds = np.zeros(len(self._pixels))
-        upper_bounds = np.zeros(len(self._pixels))
-
-        for i, p in enumerate(self._pixels):
-            lower_bounds[i], upper_bounds[i] = p._pixel_shape.bounds()
-
-            upper_bounds[i] += p._wavelength_nm
-            lower_bounds[i] += p._wavelength_nm
-
-        bounding_sets = _set_join(lower_bounds, upper_bounds)
-
-        wavel = np.concatenate(
-            [np.arange(set[0], set[1], res_nm) for set in bounding_sets]
-        )
-
-        if len(wavel) == 0:
-            wavel = np.array(self.wavelength_nm)
-
-        return wavel
-
-
-class SpectrographFast(Spectrograph):
-    """
-    Same functionality as Spectrogaph, but coded to not consist of individual pixels for speed
-    """
-
-    def __init__(
-        self,
-        wavelength_nm: np.array,
-        pixel_shape: LineShape,
-        vert_fov: LineShape,
-        horiz_fov: LineShape,
-    ):
-        """
-
-        Parameters
-        ----------
-        wavelength_nm : np.array
-            Central wavelengths for each pixel
-        pixel_shape: LineShape
-            Wavelength line shape
-        vert_fov: LineShape
-            Vertical field of view
-        horiz_fov: LineShape
-            Horizontal field of view
-        """
-        super().__init__(wavelength_nm, pixel_shape, vert_fov, horiz_fov)
+        self._vert_fov = vert_fov
+        self._horiz_fov = horiz_fov
 
         self._cached_wavel_interp = None
         self._cached_wavel_interp_wavel = None
 
-    def _construct_interpolators(
-        self, model_geometry, optical_geometry, model_wavel_nm
-    ):
-        los_interp = self._pixels[0]._construct_los_interpolator(
-            model_geometry, optical_geometry
-        )
+        self._spectral_native_coordinate = spectral_native_coordinate
 
-        if not np.array_equal(model_wavel_nm, self._cached_wavel_interp_wavel):
+    def _construct_interpolators(
+        self, orientation, los_vectors, model_spectral_grid
+    ):
+        x_axis = np.array(orientation.look_vector)
+        vert_normal = np.cross(np.array(x_axis), np.array(orientation.local_up))
+        vert_normal = vert_normal / np.linalg.norm(vert_normal)
+        vert_y_axis = np.cross(vert_normal, x_axis)
+
+        horiz_y_axis = vert_normal
+
+        horiz_angle = []
+        vert_angle = np.arctan2(np.dot(los_vectors, vert_y_axis),
+                                np.dot(los_vectors, x_axis))
+
+        horiz_angle = np.arctan2(np.dot(los_vectors, horiz_y_axis),
+                                 np.dot(los_vectors, x_axis))
+
+        horiz_interpolator = self._horiz_fov.integration_weights(
+            0, np.array(horiz_angle)
+        )
+        vert_interpolator = self._vert_fov.integration_weights(0, np.array(vert_angle))
+
+        los_interpolator = np.zeros(len(vert_interpolator))
+        los_interpolator = horiz_interpolator * vert_interpolator
+        los_interpolator /= np.nansum(los_interpolator)
+
+        los_interpolator = los_interpolator.reshape(-1, 1)
+
+        if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
             wavel_interp = []
-            for p in self._pixels:
-                wavel_interp.append(
-                    p._construct_wavelength_interpolator(model_wavel_nm)
-                )
+            for cw, p in zip(self._wavelength_nm, self._pixel_shape):
+                weights = p.integration_weights(cw, model_spectral_grid)
+
+                wavel_interp.append(weights / weights.sum())
 
             wavel_interp = np.vstack(wavel_interp)
             self._cached_wavel_interp = wavel_interp
-            self._cached_wavel_interp_wavel = copy(model_wavel_nm)
+            self._cached_wavel_interp_wavel = copy(model_spectral_grid)
 
-        return self._cached_wavel_interp, los_interp
+        return self._cached_wavel_interp, los_interpolator
 
     def model_radiance(
         self,
-        optical_geometry: OpticalGeometry,
-        model_wavel_nm: np.array,
-        model_geometry: Geometry,
-        radiance: np.array,
-        wf=None,
-    ):
+        radiance: SASKTRANRadiance,
+        orientation: OpticalGeometry,
+    ) -> radianceformat.RadianceGridded:
         wavel_interp, los_interp = self._construct_interpolators(
-            model_geometry, optical_geometry, model_wavel_nm
+            orientation, radiance.data["look_vectors"].to_numpy(), radiance.data["wavelength_nm"].to_numpy()
         )
 
         modelled_radiance = np.einsum(
-            "ij,jk...,kl", wavel_interp, radiance, los_interp, optimize="optimal"
+            "ij,jk...,kl", wavel_interp, radiance.data["radiance"].to_numpy(), los_interp, optimize=True
         )
 
         data = xr.Dataset(
             {
                 "radiance": (["wavelength", "los"], modelled_radiance),
-                "mjd": (["los"], [optical_geometry.mjd]),
+                "mjd": (["los"], [orientation.mjd]),
                 "los_vectors": (
                     ["los", "xyz"],
-                    optical_geometry.look_vector.reshape((1, 3)),
+                    orientation.look_vector.reshape((1, 3)),
                 ),
                 "observer_position": (
                     ["los", "xyz"],
-                    optical_geometry.observer.reshape((1, 3)),
+                    orientation.observer.reshape((1, 3)),
                 ),
             },
             coords={
-                "wavelength": self.measurement_wavelengths(),
+                "wavelength": self._wavelength_nm,
+                "xyz": ["x", "y", "z"],
+            },
+        )
+        for key in list(radiance.data):
+            if key.startswith("wf"):
+                modelled_wf = np.einsum(
+                    "ij,ljk,km->iml", wavel_interp, radiance.data[key].to_numpy(), los_interp, optimize=True
+                )
+
+                data[key] = (["wavelength", "los", radiance.data[key].dims[0]], modelled_wf)
+
+        return radianceformat.RadianceGridded(data)
+
+    def radiance_format(self) -> type[radianceformat.RadianceGridded]:
+        return radianceformat.RadianceGridded
+
+
+
+
+class SpectrographOnlySpectral(Sensor):
+    def __init__(
+        self,
+        wavelength_nm: np.array,
+        pixel_shape: list[LineShape],
+        spectral_native_coordinate: str = "wavelength_nm",
+    ):
+        """
+        Similar to a spectrograph but does not perform convolution in spatial space, just wavelength
+
+        Parameters
+        ----------
+        wavelength_nm : np.array
+            Central wavelengths for each pixel
+        pixel_shape: LineShape
+            Wavelength line shape
+        """
+
+        self._wavelength_nm = wavelength_nm
+        self._wavenumber_cminv = 1e7 / wavelength_nm
+        self._pixel_shape = pixel_shape
+
+        self._cached_wavel_interp = None
+        self._cached_wavel_interp_wavel = None
+
+        self._spectral_native_coordinate = spectral_native_coordinate
+
+    def _construct_interpolators(
+        self, model_spectral_grid
+    ):
+
+        if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
+            wavel_interp = []
+            for cw, p in zip(self._wavelength_nm, self._pixel_shape):
+                weights = p.integration_weights(cw, model_spectral_grid)
+
+                wavel_interp.append(weights / weights.sum())
+
+            wavel_interp = np.vstack(wavel_interp)
+            self._cached_wavel_interp = wavel_interp
+            self._cached_wavel_interp_wavel = copy(model_spectral_grid)
+
+        return self._cached_wavel_interp
+
+    def model_radiance(
+        self,
+        radiance: SASKTRANRadiance,
+        orientation: OpticalGeometry,
+    ) -> radianceformat.RadianceGridded:
+        wavel_interp = self._construct_interpolators(
+            radiance.data["wavelength_nm"].to_numpy()
+        )
+
+        modelled_radiance = np.einsum(
+            "ij,jk...", wavel_interp, radiance.data["radiance"].to_numpy(), optimize=True
+        )
+
+        data = xr.Dataset(
+            {
+                "radiance": (["wavelength", "los"], modelled_radiance),
+            },
+            coords={
+                "wavelength": self._wavelength_nm,
                 "xyz": ["x", "y", "z"],
             },
         )
 
-        if wf is not None:
-            modelled_wf = np.einsum(
-                "ij,jkl,km->iml", wavel_interp, wf, los_interp, optimize="optimal"
-            )
+        data["los_vectors"] = radiance.data["look_vectors"]
+        data["observer_position"] = radiance.data["observer_position"]
 
-            data["wf"] = (["wavelength", "los", "perturbation"], modelled_wf)
+        for key in list(radiance.data):
+            if key.startswith("wf"):
+                modelled_wf = np.einsum(
+                    "ij,ljk->ikl", wavel_interp, radiance.data[key].to_numpy(), optimize=True
+                )
+
+                data[key] = (["wavelength", "los", radiance.data[key].dims[0]], modelled_wf)
 
         return radianceformat.RadianceGridded(data)
+
+    def radiance_format(self) -> type[radianceformat.RadianceGridded]:
+        return radianceformat.RadianceGridded
 
 
 def _set_join(lower_bounds, upper_bounds):

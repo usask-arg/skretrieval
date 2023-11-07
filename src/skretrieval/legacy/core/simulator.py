@@ -6,7 +6,7 @@ import xarray as xr
 
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
-from skretrieval.core.sensor import Sensor
+from skretrieval.legacy.core.sensor import Sensor
 from skretrieval.retrieval import ForwardModel
 
 
