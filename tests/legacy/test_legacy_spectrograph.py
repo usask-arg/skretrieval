@@ -26,7 +26,10 @@ class TestSpectrograph(unittest.TestCase):
         line_shape = Gaussian(fwhm=1)
 
         optical_geo = OpticalGeometry(
-            observer=[0, 0, 1], look_vector=[0, 1, 0], local_up=[0, 0, 1], mjd=54372
+            observer=np.array([0, 0, 1]),
+            look_vector=np.array([0, 1, 0]),
+            local_up=np.array([0, 0, 1]),
+            mjd=54372,
         )
 
         spectrograph = Spectrograph(
