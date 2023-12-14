@@ -4,9 +4,10 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 import pandas as pd
-import sasktran as sk
 import xarray as xr
 from scipy import sparse
+
+from skretrieval.geodetic import target_lat_lon_alt
 
 
 class RadianceBase(ABC):
@@ -41,7 +42,6 @@ class RadianceBase(ABC):
         stacked_obs = self._ds["observer_position"].stack(  # noqa: PD013
             temp_dim=los_dims
         )
-        stacked_mjd = self._ds["mjd"].stack(temp_dim=los_dims)  # noqa: PD013
 
         latitudes = []
         longitudes = []
@@ -49,20 +49,12 @@ class RadianceBase(ABC):
         for idx in stacked_los["temp_dim"]:
             one_los = stacked_los.sel(temp_dim=idx)
             one_obs = stacked_obs.sel(temp_dim=idx)
-            one_mjd = stacked_mjd.sel(temp_dim=idx)
 
-            los = sk.LineOfSight(
-                mjd=one_mjd.values, observer=one_obs.values, look_vector=one_los.values
-            )
+            lat, lon, alt = target_lat_lon_alt(one_los.to_numpy(), one_obs.to_numpy())
 
-            location = los.tangent_location()
-
-            if location is None:
-                location = los.ground_intersection(0)
-
-            latitudes.append(location.latitude)
-            longitudes.append(location.longitude)
-            altitudes.append(location.altitude)
+            latitudes.append(lat)
+            longitudes.append(lon)
+            altitudes.append(alt)
 
         result = xr.Dataset(
             {

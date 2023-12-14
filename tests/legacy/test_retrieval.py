@@ -7,9 +7,9 @@ import sasktran as sk
 
 from skretrieval.core.lineshape import Gaussian, Rectangle
 from skretrieval.core.platform.satellite import fake_satellite_scan
-from skretrieval.core.sensor.spectrograph import Spectrograph
-from skretrieval.core.simulator import MeasurementSimulator
-from skretrieval.retrieval.ozone import OzoneRetrieval
+from skretrieval.legacy.core.sensor.spectrograph import Spectrograph
+from skretrieval.legacy.core.simulator import MeasurementSimulator
+from skretrieval.legacy.retrieval.ozone import OzoneRetrieval
 from skretrieval.retrieval.rodgers import Rodgers
 
 

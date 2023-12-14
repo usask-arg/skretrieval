@@ -7,15 +7,15 @@ import sasktran as sk
 
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import DeltaFunction, Gaussian
-from skretrieval.core.sensor.spectrograph import Spectrograph
+from skretrieval.legacy.core.sensor.spectrograph import Spectrograph
 
 
 class TestSpectrographIntegration(unittest.TestCase):
     def setUp(self):
         self.optical_geometry = OpticalGeometry(
-            observer=[0, 6392 * 1000, 6392 * 1000],
-            look_vector=[0, -1, 0],
-            local_up=[0, 0, 1],
+            observer=np.array([0, 6392 * 1000, 6392 * 1000]),
+            look_vector=np.array([0, -1, 0]),
+            local_up=np.array([0, 0, 1]),
             mjd=54372,
         )
 

@@ -6,7 +6,7 @@ import numpy as np
 import sasktran as sk
 import xarray as xr
 
-from skretrieval.retrieval.statevector.profile import StateVectorProfile
+from skretrieval.legacy.retrieval.statevector.profile import StateVectorProfile
 
 
 class AerosolGaussianPressure(StateVectorProfile):

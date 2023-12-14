@@ -7,21 +7,19 @@ from sasktran import Geometry, LineOfSight
 
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import Gaussian
-from skretrieval.core.sensor.spectrograph import Spectrograph
+from skretrieval.legacy.core.sensor.pixel import Pixel
 
 
-class TestSpectrograph(unittest.TestCase):
+class TestPixel(unittest.TestCase):
     def test_initialization(self):
-        wavel_nm = np.linspace(200, 300, 101)
+        wavel_nm = 350
 
         line_shape = Gaussian(fwhm=1)
 
-        _ = Spectrograph(
-            wavel_nm, line_shape, vert_fov=Gaussian(fwhm=1), horiz_fov=Gaussian(fwhm=1)
-        )
+        _ = Pixel(wavel_nm, line_shape, Gaussian(fwhm=1), Gaussian(fwhm=1))
 
     def test_line_shape(self):
-        wavel_nm = np.linspace(200, 300, 101)
+        wavel_nm = 350
 
         line_shape = Gaussian(fwhm=1)
 
@@ -29,11 +27,9 @@ class TestSpectrograph(unittest.TestCase):
             observer=[0, 0, 1], look_vector=[0, 1, 0], local_up=[0, 0, 1], mjd=54372
         )
 
-        spectrograph = Spectrograph(
-            wavel_nm, line_shape, Gaussian(fwhm=1), Gaussian(fwhm=1)
-        )
+        pixel = Pixel(wavel_nm, line_shape, Gaussian(fwhm=1), Gaussian(fwhm=1))
 
-        hires_wavel = spectrograph.required_wavelengths(0.01)
+        hires_wavel = pixel.required_wavelengths(0.01)
 
         model_geometry = Geometry()
 
@@ -50,4 +46,4 @@ class TestSpectrograph(unittest.TestCase):
 
         rad[300, 50] = 1
 
-        _ = spectrograph.model_radiance(optical_geo, hires_wavel, model_geometry, rad)
+        _ = pixel.model_radiance(optical_geo, hires_wavel, model_geometry, rad)

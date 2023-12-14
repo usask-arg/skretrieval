@@ -7,8 +7,8 @@ import sasktran as sk
 
 from skretrieval.core.lineshape import Gaussian, Rectangle
 from skretrieval.core.platform.satellite import fake_satellite_scan
-from skretrieval.core.sensor.spectrograph import Spectrograph
-from skretrieval.core.simulator import MeasurementSimulator
+from skretrieval.legacy.core.sensor.spectrograph import Spectrograph
+from skretrieval.legacy.core.simulator import MeasurementSimulator
 
 
 class TestMeasSimulator(unittest.TestCase):

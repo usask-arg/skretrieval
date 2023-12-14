@@ -9,9 +9,9 @@ if TYPE_CHECKING:
     from ..platform import Platform
 
 import numpy as np
-import sasktran as sk
 import scipy.optimize
 
+from skretrieval.geodetic import geodetic
 from skretrieval.time import datetime64_to_datetime
 
 from ..platform.rotationmatrix import UnitVectors
@@ -23,7 +23,7 @@ from ..platform.rotationmatrix import UnitVectors
 class ObserverBearingFunction:
     def __init__(self, tanlat, tanlng, tanheight, observerheight, observer_bearing):
         self.target_observer_bearing = observer_bearing
-        self._geo = sk.Geodetic()
+        self._geo = geodetic()
         self._geo.from_lat_lon_alt(tanlat, tanlng, tanheight)
         self.tpnorth = -self._geo.local_south
         self.tpeast = -self._geo.local_west

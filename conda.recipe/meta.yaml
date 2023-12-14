@@ -31,6 +31,7 @@ requirements:
     - jdcal
     - astropy
     - numba
+    - sasktran2
 
 test:
   imports:
@@ -41,6 +42,7 @@ test:
     - tests
   commands:
     - pip install sasktran
+    - python -c "import sasktran2 as sk; sk.appconfig.download_standard_databases()"
     - pytest tests
 
 about:
