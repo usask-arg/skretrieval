@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import logging
-
 import numpy as np
 import sasktran as sk
 import sasktran2 as sk2
@@ -45,9 +43,38 @@ def _limb_viewing_los(
 
 
 def _ground_viewing_los(
-    los: sk.LineOfSight, forced_sun: np.array = None  # noqa: ARG001
+    los: sk.LineOfSight, forced_sun: np.array = None
 ) -> sk2.GroundViewingSolar:
-    logging.warning("Ground viewing LOS not supported in SK legacy to SK2 conversion")
+    ground_location = los.ground_intersection()
+
+    # TODO: Get this from astropy
+    sun = None if forced_sun is None else forced_sun
+
+    cos_sza = np.dot(ground_location.local_up, sun)
+
+    los_projected = los.look_vector - ground_location.local_up * (
+        los.look_vector.dot(ground_location.local_up)
+    )
+    los_projected /= np.linalg.norm(los_projected)
+
+    sun_projected = sun - ground_location.local_up * (sun.dot(ground_location.local_up))
+    sun_projected /= np.linalg.norm(sun_projected)
+
+    y_axis = np.cross(ground_location.local_up, sun_projected)
+
+    saa = np.arctan2(y_axis.dot(los_projected), sun_projected.dot(los_projected))
+
+    obs_geo = geodetic()
+    obs_geo.from_xyz(los.observer)
+
+    cos_zenith = np.abs(np.dot(los.look_vector, ground_location.local_up))
+
+    return sk2.GroundViewingSolar(
+        cos_sza,
+        saa,
+        cos_zenith,
+        np.linalg.norm(obs_geo.location) - np.linalg.norm(ground_location.location),
+    )
 
 
 def convert_sasktran_legacy_geometry(
