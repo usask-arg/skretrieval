@@ -14,6 +14,9 @@ class StateVectorElement(abc.ABC):
     to update itself, calculate the jacobian matrix for itself.
     """
 
+    def __init__(self, enabled: bool = True):
+        self._enabled = enabled
+
     @abc.abstractmethod
     def state(self) -> np.array:
         pass
@@ -32,6 +35,14 @@ class StateVectorElement(abc.ABC):
     def upper_bound(self) -> np.array:
         n = len(self.state())
         return np.ones(n) * (np.inf)
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, e: bool):
+        self._enabled = e
 
     @abc.abstractmethod
     def name(self) -> str:

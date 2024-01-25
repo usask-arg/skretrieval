@@ -107,7 +107,7 @@ class SASKTRANRadiance:
         sasktran2_radiance.coords["wavenumber_cminv"] = (
             1e7 / sasktran2_radiance["wavelength_nm"]
         )
-        return cls(sasktran2_radiance)
+        return cls(sasktran2_radiance, collapse_scalar_stokes=False)
 
     def _validate_ds(self):
         assert "radiance" in self.data.variables

@@ -25,6 +25,7 @@ class StateVectorElementConstituent(
         prior_influence=0,
         first_order_tikh=None,
         log_space=False,
+        enabled=True,
     ):
         """
         A state vector element that is a sasktran2.constituent
@@ -70,6 +71,7 @@ class StateVectorElementConstituent(
             self._prior_dict[property_name] = copy(
                 getattr(self._constituent, property_name)
             )
+        super().__init__(enabled)
 
     def state(self) -> np.array:
         data = []

@@ -234,7 +234,7 @@ class Rodgers(Minimizer):
                     A = (
                         K.T @ inv_Sy @ K
                         + inv_Sa
-                        + self._lm_damping * np.eye(inv_Sa.shape)
+                        + self._lm_damping * np.eye(inv_Sa.shape[0])
                     )
                 else:
                     msg = "lm_damping_method should be one of fletcher, prior, or identity"

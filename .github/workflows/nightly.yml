@@ -102,10 +102,10 @@ jobs:
           name: releases
           path: dist
 
-      - name: Upload Wheels
-        shell: bash -el {0}
-        run: |
-          anaconda --token ${{ secrets.ANACONDA_TOKEN_NIGHTLY }} upload \
-          --force \
-          --user "usask-arg-nightly" \
-          dist/*.whl
+      - name: Upload wheel
+        uses: scientific-python/upload-nightly-action@6e9304f7a3a5501c6f98351537493ec898728299 # 0.3.0
+        with:
+          artifacts_path: dist
+          anaconda_nightly_upload_organization: usask-arg
+          anaconda_nightly_upload_token: ${{ secrets.ANACONDA_TOKEN_NIGHTLY }}
+          anaconda_nightly_upload_labels: dev

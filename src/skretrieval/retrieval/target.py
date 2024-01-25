@@ -25,21 +25,24 @@ class GenericTarget(RetrievalTarget):
     def state_vector(self):
         vec = []
         for state_element in self._state_vector.state_elements:
-            vec.append(state_element.state())
+            if state_element.enabled:
+                vec.append(state_element.state())
 
         return self._map_bounded_to_internal(np.concatenate(vec))
 
     def lower_bound(self):
         vec = []
         for state_element in self._state_vector.state_elements:
-            vec.append(state_element.lower_bound())
+            if state_element.enabled:
+                vec.append(state_element.lower_bound())
 
         return np.concatenate(vec)
 
     def upper_bound(self):
         vec = []
         for state_element in self._state_vector.state_elements:
-            vec.append(state_element.upper_bound())
+            if state_element.enabled:
+                vec.append(state_element.upper_bound())
 
         return np.concatenate(vec)
 
@@ -49,18 +52,21 @@ class GenericTarget(RetrievalTarget):
         for state_element, state_slice in zip(
             self._state_vector.state_elements, self._state_slices
         ):
-            state_element.update_state(rescaled_x[state_slice])
+            if state_element.enabled:
+                state_element.update_state(rescaled_x[state_slice])
 
     def apriori_state(self) -> np.array:
         vec = []
         for state_element in self._state_vector.state_elements:
-            vec.append(state_element.apriori_state())
+            if state_element.enabled:
+                vec.append(state_element.apriori_state())
         return self._map_bounded_to_internal(np.concatenate(vec))
 
     def inverse_apriori_covariance(self):
         inv_covar = []
         for state_element in self._state_vector.state_elements:
-            inv_covar.append(state_element.inverse_apriori_covariance())
+            if state_element.enabled:
+                inv_covar.append(state_element.inverse_apriori_covariance())
 
         return self._map_inv_Sa_by_dinternal(
             self.state_vector(), block_diag(*inv_covar)
@@ -234,6 +240,9 @@ class GenericTarget(RetrievalTarget):
         self._state_slices = []
         cur_idx = 0
         for state_element in self._state_vector.state_elements:
-            n = len(state_element.state())
-            self._state_slices.append(slice(cur_idx, cur_idx + n))
-            cur_idx += n
+            if state_element.enabled:
+                n = len(state_element.state())
+                self._state_slices.append(slice(cur_idx, cur_idx + n))
+                cur_idx += n
+            else:
+                self._state_slices.append(None)
