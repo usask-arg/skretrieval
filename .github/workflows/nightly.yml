@@ -92,11 +92,6 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Setup Conda build environment
-        uses: mamba-org/setup-micromamba@v1
-        with:
-          environment-file: ci/conda-envs/mamba-build.yml
-
       - uses: actions/download-artifact@v3
         with:
           name: releases
@@ -106,6 +101,6 @@ jobs:
         uses: scientific-python/upload-nightly-action@6e9304f7a3a5501c6f98351537493ec898728299 # 0.3.0
         with:
           artifacts_path: dist
-          anaconda_nightly_upload_organization: usask-arg
-          anaconda_nightly_upload_token: ${{ secrets.ANACONDA_TOKEN_NIGHTLY }}
+          anaconda_nightly_upload_organization: usask-arg-nightly
+          anaconda_nightly_upload_token: ${{secrets.ANACONDA_TOKEN_NIGHTLY}}
           anaconda_nightly_upload_labels: dev
