@@ -99,7 +99,9 @@ class SASKTRANRadiance:
         return cls(sasktran_legacy_radiance)
 
     @classmethod
-    def from_sasktran2(cls, sasktran2_radiance: xr.Dataset) -> SASKTRANRadiance:
+    def from_sasktran2(
+        cls, sasktran2_radiance: xr.Dataset, collapse_scalar_stokes=False
+    ) -> SASKTRANRadiance:
         sasktran2_radiance = sasktran2_radiance.rename({"wavelength": "wavelength_nm"})
         sasktran2_radiance = sasktran2_radiance.swap_dims(
             {"wavelength_nm": "spectral_grid"}
@@ -107,7 +109,7 @@ class SASKTRANRadiance:
         sasktran2_radiance.coords["wavenumber_cminv"] = (
             1e7 / sasktran2_radiance["wavelength_nm"]
         )
-        return cls(sasktran2_radiance)
+        return cls(sasktran2_radiance, collapse_scalar_stokes=collapse_scalar_stokes)
 
     def _validate_ds(self):
         assert "radiance" in self.data.variables

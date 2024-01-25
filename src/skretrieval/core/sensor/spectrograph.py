@@ -200,7 +200,7 @@ class SpectrographOnlySpectral(Sensor):
         modelled_radiance = np.einsum(
             "ij,jk...",
             wavel_interp,
-            radiance.data["radiance"].to_numpy(),
+            radiance.data["radiance"].isel(stokes=0).to_numpy(),
             optimize=True,
         )
 
@@ -222,7 +222,7 @@ class SpectrographOnlySpectral(Sensor):
                 modelled_wf = np.einsum(
                     "ij,ljk->ikl",
                     wavel_interp,
-                    radiance.data[key].to_numpy(),
+                    radiance.data[key].isel(stokes=0).to_numpy(),
                     optimize=True,
                 )
 
