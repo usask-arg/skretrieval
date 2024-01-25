@@ -54,7 +54,9 @@ def test_spectrograph():
     atmosphere["rayleigh"] = sk2.constituent.Rayleigh()
     atmosphere["o3"] = sk2.climatology.mipas.constituent("O3", sk2.optical.O3DBM())
 
-    radiance = SASKTRANRadiance.from_sasktran2(engine.calculate_radiance(atmosphere))
+    radiance = SASKTRANRadiance.from_sasktran2(
+        engine.calculate_radiance(atmosphere), collapse_scalar_stokes=True
+    )
     radiance.data["look_vectors"] = (
         ["los", "xyz"],
         np.vstack([los.look_vector for los in geo.lines_of_sight]),
