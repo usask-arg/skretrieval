@@ -149,6 +149,7 @@ class SciPyMinimizer(Minimizer):
             xtol=self._xtol,
             ftol=self._ftol,
             bounds=bounds,
+            **self._kwargs,
         )
 
 
