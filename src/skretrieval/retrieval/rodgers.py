@@ -319,6 +319,8 @@ class Rodgers(Minimizer):
                     self._lm_damping *= self._lm_change_factor**2
                 if self._retreat_lm:
                     retrieval_target.update_state(x_scaler @ best_x)
+                else:
+                    chi_sq_prev = chi_sq
                 logging.info(
                     "Iteration was worse increasing LM factor",
                     extra={"lm_damping": self._lm_damping},
