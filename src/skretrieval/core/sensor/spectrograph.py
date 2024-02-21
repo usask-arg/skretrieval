@@ -153,6 +153,7 @@ class SpectrographOnlySpectral(Sensor):
         wavelength_nm: np.array,
         pixel_shape: list[LineShape],
         spectral_native_coordinate: str = "wavelength_nm",
+        assign_coord: str = "wavelength",
     ):
         """
         Similar to a spectrograph but does not perform convolution in spatial space, just wavelength
@@ -173,11 +174,17 @@ class SpectrographOnlySpectral(Sensor):
         self._cached_wavel_interp_wavel = None
 
         self._spectral_native_coordinate = spectral_native_coordinate
+        self._assign_coord = assign_coord
+
+        if spectral_native_coordinate == "wavelength_nm":
+            self._assign_vals = self._wavelength_nm
+        else:
+            self._assign_vals = self._wavenumber_cminv
 
     def _construct_interpolators(self, model_spectral_grid):
         if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
             wavel_interp = []
-            for cw, p in zip(self._wavelength_nm, self._pixel_shape):
+            for cw, p in zip(self._assign_vals, self._pixel_shape):
                 weights = p.integration_weights(cw, model_spectral_grid)
 
                 wavel_interp.append(weights / weights.sum())
@@ -194,7 +201,7 @@ class SpectrographOnlySpectral(Sensor):
         orientation: OpticalGeometry,  # noqa: ARG002
     ) -> radianceformat.RadianceGridded:
         wavel_interp = self._construct_interpolators(
-            radiance.data["wavelength_nm"].to_numpy()
+            radiance.data[self._spectral_native_coordinate].to_numpy()
         )
 
         modelled_radiance = np.einsum(
@@ -206,16 +213,19 @@ class SpectrographOnlySpectral(Sensor):
 
         data = xr.Dataset(
             {
-                "radiance": (["wavelength", "los"], modelled_radiance),
+                "radiance": ([self._assign_coord, "los"], modelled_radiance),
             },
             coords={
-                "wavelength": self._wavelength_nm,
+                self._assign_coord: self._assign_vals,
                 "xyz": ["x", "y", "z"],
             },
         )
 
-        data["los_vectors"] = radiance.data["look_vectors"]
-        data["observer_position"] = radiance.data["observer_position"]
+        if "look_vectors" in radiance.data:
+            data["los_vectors"] = radiance.data["look_vectors"]
+
+        if "observer_position" in radiance.data:
+            data["observer_position"] = radiance.data["observer_position"]
 
         for key in list(radiance.data):
             if key.startswith("wf"):
@@ -227,7 +237,7 @@ class SpectrographOnlySpectral(Sensor):
                 )
 
                 data[key] = (
-                    ["wavelength", "los", radiance.data[key].dims[0]],
+                    [self._assign_coord, "los", radiance.data[key].dims[0]],
                     modelled_wf,
                 )
 
