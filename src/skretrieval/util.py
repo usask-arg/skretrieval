@@ -81,3 +81,44 @@ def linear_interpolating_matrix(from_grid: np.array, to_grid: np.array):
             M[idx, idx_above - 1] = w
 
     return M
+
+
+def configure_log():
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    class ExFormatter(logging.Formatter):
+        def_keys = [  # noqa: RUF012
+            "name",
+            "msg",
+            "args",
+            "levelname",
+            "levelno",
+            "pathname",
+            "filename",
+            "module",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "created",
+            "msecs",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "processName",
+            "process",
+            "taskName",
+            "message",
+        ]
+
+        def format(self, record):
+            string = super().format(record)
+            extra = {k: v for k, v in record.__dict__.items() if k not in self.def_keys}
+            if len(extra) > 0:
+                string += " - " + str(extra)
+            return string
+
+    logger.addHandler(logging.StreamHandler())
+    logger.handlers[0].setFormatter(ExFormatter())
