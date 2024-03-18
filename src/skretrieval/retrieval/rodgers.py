@@ -202,19 +202,21 @@ class Rodgers(Minimizer):
 
             ys.append(y_ret_dict["y"])
 
+            approx_hessian = K.T @ inv_Sy @ K
+
             # Left side of rodgers equation
             if sparse.issparse(K):
                 if self._lm_damping_method.lower() == "fletcher":
                     A = (
-                        K.T @ inv_Sy @ K
-                        + self._lm_damping * sparse.diags((K.T @ inv_Sy @ K).diagonal())
+                        approx_hessian
+                        + self._lm_damping * sparse.diags((approx_hessian).diagonal())
                         + inv_Sa
                     )
                 elif self._lm_damping_method.lower() == "prior":
-                    A = K.T @ inv_Sy @ K + (self._lm_damping + 1) * inv_Sa
+                    A = approx_hessian + (self._lm_damping + 1) * inv_Sa
                 elif self._lm_damping_method == "identity":
                     A = (
-                        K.T @ inv_Sy @ K
+                        approx_hessian
                         + inv_Sa
                         + self._lm_damping * np.eye(inv_Sa.shape)
                     )
@@ -224,15 +226,15 @@ class Rodgers(Minimizer):
             else:
                 if self._lm_damping_method.lower() == "fletcher":
                     A = (
-                        K.T @ inv_Sy @ K
-                        + self._lm_damping * np.diag(np.diag(K.T @ inv_Sy @ K))
+                        approx_hessian
+                        + self._lm_damping * np.diag(np.diag(approx_hessian))
                         + inv_Sa
                     )
                 elif self._lm_damping_method.lower() == "prior":
-                    A = K.T @ inv_Sy @ K + (self._lm_damping + 1) * inv_Sa
+                    A = approx_hessian + (self._lm_damping + 1) * inv_Sa
                 elif self._lm_damping_method == "identity":
                     A = (
-                        K.T @ inv_Sy @ K
+                        approx_hessian
                         + inv_Sa
                         + self._lm_damping * np.eye(inv_Sa.shape[0])
                     )
@@ -240,7 +242,7 @@ class Rodgers(Minimizer):
                     msg = "lm_damping_method should be one of fletcher, prior, or identity"
                     raise ValueError(msg)
 
-            A_without_lm = K.T @ inv_Sy @ K + inv_Sa
+            A_without_lm = approx_hessian + inv_Sa
 
             # Right side of rodgers equation
             B = K.T @ inv_Sy @ (y_meas - y_ret) - inv_Sa @ (x - x_a)

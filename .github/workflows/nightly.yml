@@ -79,28 +79,3 @@ jobs:
         with:
           name: releases
           path: dist
-
-  upload-nightly-wheels:
-    needs: build_wheel
-    runs-on: ubuntu-latest
-    if: github.repository == 'usask-arg/skretrieval'
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - uses: actions/download-artifact@v3
-        with:
-          name: releases
-          path: dist
-
-      - name: Upload wheel
-        uses: scientific-python/upload-nightly-action@6e9304f7a3a5501c6f98351537493ec898728299 # 0.3.0
-        with:
-          artifacts_path: dist
-          anaconda_nightly_upload_organization: usask-arg-nightly
-          anaconda_nightly_upload_token: ${{secrets.ANACONDA_TOKEN_NIGHTLY}}
-          anaconda_nightly_upload_labels: dev
