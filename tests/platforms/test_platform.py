@@ -1,10 +1,6 @@
-from __future__ import annotations
-
 import unittest
-
 import numpy as np
-
-from skretrieval.platforms import Platform
+from skretrieval.platforms.platform import Platform
 
 
 class SkretrievalPlatformTests(unittest.TestCase):

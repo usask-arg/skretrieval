@@ -21,6 +21,10 @@ from ..platform.rotationmatrix import UnitVectors
 #           ObserverBearingFunction
 # ------------------------------------------------------------------------------
 class ObserverBearingFunction:
+    """
+    An internal callable object that is used when calculating bearings of tangent points from the observer
+    """
+
     def __init__(self, tanlat, tanlng, tanheight, observerheight, observer_bearing):
         self.target_observer_bearing = observer_bearing
         self._geo = geodetic()
@@ -66,9 +70,7 @@ class ObserverBearingFunction:
 #           _technique_set_instrument_internal_orientation
 # ------------------------------------------------------------------------------
 def _technique_set_instrument_internal_orientation(
-    platform: Platform,
-    ut: np.datetime64,  # noqa: ARG001
-    turntable_definition: np.ndarray,
+    platform: Platform, ut: np.datetime64, turntable_definition: np.ndarray
 ):
     platform.platform_pointing.rotate_instrument_in_icf(
         turntable_definition[0], turntable_definition[1], turntable_definition[2]
@@ -184,9 +186,7 @@ def _technique_set_platform_position_from_observer_looking_at_llh(
 #           _technique_set_platform_position_from_platform
 # ------------------------------------------------------------------------------
 def _technique_set_platform_position_from_platform(
-    platform: Platform,
-    ut: np.datetime64,
-    position_definition: np.ndarray,  # noqa: ARG001
+    platform: Platform, ut: np.datetime64, position_definition: np.ndarray
 ) -> bool:
     utc = datetime64_to_datetime(ut)
     locator = platform.platform_locator
@@ -283,7 +283,7 @@ def _technique_set_boresight_look_at_location_llh(
 def _technique_set_boresight_pointing_from_unitvectors(
     pointing_algorithm: PointingAlgorithms,
     look_vector_definition: np.ndarray,
-    roll_control: str,  # noqa: ARG001
+    roll_control: str,
 ) -> bool:
     xunit = look_vector_definition[0:3]
     zunit = look_vector_definition[3:6]
@@ -316,8 +316,8 @@ def _technique_set_observer_to_look_in_azi_elev(
 # ------------------------------------------------------------------------------
 def _technique_set_platform_pointing_from_platform(
     pointing_algorithm: PointingAlgorithms,
-    look_vector_definition: np.ndarray,  # noqa: ARG001
-    roll_control: str,  # noqa: ARG001
+    look_vector_definition: np.ndarray,
+    roll_control: str,
 ) -> bool:
     platform = pointing_algorithm.platform
     utc = platform.platform_pointing.utc()
@@ -373,3 +373,34 @@ def _technique_set_boresight_look_at_location_orbitangle(
             roll_angle,
         )
     return ok
+
+
+# ------------------------------------------------------------------------------
+#           _technique_set_platform_position_from_platform
+# ------------------------------------------------------------------------------
+def _technique_set_icf_orientation_from_azi_elev(
+    platform: Platform, azielevdata: np.ndarray
+) -> bool:
+    azimuth = azielevdata[0]
+    elevation = azielevdata[1]
+    roll = azielevdata[2] if azielevdata.size == 3 else 0
+    platform.platform_pointing.rotate_instrument_in_icf(azimuth, elevation, roll)
+    return True
+
+
+# ------------------------------------------------------------------------------
+#           _technique_set_platform_position_from_platform
+# ------------------------------------------------------------------------------
+def _technique_set_icf_look_from_xyz(platform: Platform, xyz_data: np.ndarray) -> bool:
+    raise AssertionError()  # platform.platform_pointing.set_platform_location(xyzt=(position[0], position[1], position[2], ut))
+    return True
+
+
+# ------------------------------------------------------------------------------
+#           _technique_set_platform_position_from_platform
+# ------------------------------------------------------------------------------
+def _technique_set_icf_orientation_no_operation(
+    platform: Platform, xyz_data: np.ndarray
+) -> bool:
+    platform.platform_pointing.reset_icf_rotation_matrices()
+    return True

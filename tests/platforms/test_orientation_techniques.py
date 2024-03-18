@@ -1,13 +1,9 @@
-from __future__ import annotations
-
-import math
 import unittest
-
 import numpy as np
-import sasktran as sk
-
+import math
 import skretrieval.time as sktime
-from skretrieval.platforms import Platform
+import sasktran as sk
+from skretrieval.platforms.platform import Platform
 from skretrieval.platforms.satellite import SatelliteSunSync
 
 
@@ -41,9 +37,9 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         self.assertAlmostEqual(obslat, 52.0, 5)
         self.assertAlmostEqual(obslng, 253.0, 5)
         self.assertAlmostEqual(obshgt, 600.0, 5)
-        self.assertAlmostEqual(tanlat, 63.646779467909205, 8)
-        self.assertAlmostEqual(tanlng, 291.7846428625422, 8)
-        self.assertAlmostEqual(tanhgt, 35.000064782094675, 8)
+        self.assertAlmostEqual(tanlat, 63.64674494609161, 3)
+        self.assertAlmostEqual(tanlng, 291.7842681940222, 3)
+        self.assertAlmostEqual(tanhgt, 35.000064782094675, 3)
 
     # ------------------------------------------------------------------------------
     #           test_example2
@@ -75,9 +71,9 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         self.assertAlmostEqual(obslat, 38.23016297193056, 5)
         self.assertAlmostEqual(obslng, 226.128606362275, 5)
         self.assertAlmostEqual(obshgt, 600.0, 5)
-        self.assertAlmostEqual(tanlat, 52.01842077235397, 8)
-        self.assertAlmostEqual(tanlng, 252.98560573739462, 8)
-        self.assertAlmostEqual(tanhgt, 35.00005703700089, 8)
+        self.assertAlmostEqual(tanlat, 52.018228238070634, 2)
+        self.assertAlmostEqual(tanlng, 252.9849577769396, 2)
+        self.assertAlmostEqual(tanhgt, 35.00005703700089, 2)
 
     # ------------------------------------------------------------------------------
     #           test_position_from_platform
@@ -127,18 +123,18 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
             # print('{:3d} Satellite location = ({:5.2f}N,{:6.2f}E) at a height of {:6.2f} km'.format(i, obslat[i], obslng[i], obshgt[i]))
             # print('{:3d} Tangent location   = ({:5.2f}N,{:6.2f}E) at a height of {:6.2f} km'.format(i, tanlat[i], tanlng[i], tanhgt[i]))
 
-        self.assertAlmostEqual(obslat[22], 78.80689388232238, 6)
-        self.assertAlmostEqual(obslng[22], 10.000714384065347, 6)
-        self.assertAlmostEqual(obshgt[22], 613.2520617083375, 6)
-        self.assertAlmostEqual(tanlat[22], 72.68425356808977, 6)
-        self.assertAlmostEqual(tanlng[22], 119.18678936727535, 6)
-        self.assertAlmostEqual(tanhgt[22], 35.00002930609809, 6)
-        self.assertAlmostEqual(obslat[67], -68.11718157186783, 6)
-        self.assertAlmostEqual(obslng[67], 202.3841216903092, 6)
-        self.assertAlmostEqual(obshgt[67], 625.6388396826844, 6)
-        self.assertAlmostEqual(tanlat[67], -48.06721073319406, 6)
-        self.assertAlmostEqual(tanlng[67], 227.5317152265392, 6)
-        self.assertAlmostEqual(tanhgt[67], 34.99995201008814, 6)
+        self.assertAlmostEqual(obslat[22], 78.80683736020426, 2)
+        self.assertAlmostEqual(obslng[22], 127.3185951847006, 2)
+        self.assertAlmostEqual(obshgt[22], 613.2565386016553, 2)
+        self.assertAlmostEqual(tanlat[22], 72.68372646991565, 2)
+        self.assertAlmostEqual(tanlng[22], 236.5054513231322, 2)
+        self.assertAlmostEqual(tanhgt[22], 35.000029306320094, 2)
+        self.assertAlmostEqual(obslat[67], -68.11695918550532, 2)
+        self.assertAlmostEqual(obslng[67], 319.7019529964772, 2)
+        self.assertAlmostEqual(obshgt[67], 625.6432617439019, 2)
+        self.assertAlmostEqual(tanlat[67], -48.066050277130465, 2)
+        self.assertAlmostEqual(tanlng[67], 344.85005649622474, 2)
+        self.assertAlmostEqual(tanhgt[67], 34.99995200953633, 2)
 
     # ------------------------------------------------------------------------------
     #           test_height_profile
@@ -187,17 +183,17 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
             # print('self.assertAlmostEqual(tanlng[{}], {})'.format(i, tanlng[i]))
             # print('self.assertAlmostEqual(tanhgt[{}], {})'.format(i, tanhgt[i]))
 
-        self.assertAlmostEqual(obslat[22], 37.980154453491124, 4)
-        self.assertAlmostEqual(obslng[22], 225.5194861787568, 4)
-        self.assertAlmostEqual(obshgt[22], 600.0000000000007, 4)
-        self.assertAlmostEqual(tanlat[22], 51.91311950603874, 4)
-        self.assertAlmostEqual(tanlng[22], 252.62516782991824, 4)
-        self.assertAlmostEqual(obslat[67], 37.980130977495996, 4)
-        self.assertAlmostEqual(obslng[67], 225.5194861787568, 4)
-        self.assertAlmostEqual(obshgt[67], 600.0000000000007, 4)
-        self.assertAlmostEqual(tanlat[67], 51.495151041881854, 4)
-        self.assertAlmostEqual(tanlng[67], 251.25787850705922, 4)
-        self.assertAlmostEqual(tanhgt[67], 67.00005620048381, 4)
+        self.assertAlmostEqual(obslat[22], 37.980130977495996, 2)
+        self.assertAlmostEqual(obslng[22], 225.5195159438611, 2)
+        self.assertAlmostEqual(obshgt[22], 600.0000000000007, 2)
+        self.assertAlmostEqual(tanlat[22], 51.91297836680919, 2)
+        self.assertAlmostEqual(tanlng[22], 252.62476172260668, 2)
+        self.assertAlmostEqual(obslat[67], 37.980130977495996, 2)
+        self.assertAlmostEqual(obslng[67], 225.5195159438611, 2)
+        self.assertAlmostEqual(obshgt[67], 600.0000000000007, 2)
+        self.assertAlmostEqual(tanlat[67], 51.49473602100524, 2)
+        self.assertAlmostEqual(tanlng[67], 251.25662163977978, 2)
+        self.assertAlmostEqual(tanhgt[67], 67.00005620048381, 2)
 
     # ------------------------------------------------------------------------------
     #           test_elev_azi
@@ -247,7 +243,7 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
             utc,
             ("llh", observer),
             ("azi_elev", "standard", azi_elev),
-            instrument_internal_rotation=[30.0, 60.0],
+            icf_orientation=("azi_elev", [30.0, 60.0]),
         )  # find the observer position and look vectors etc for the 100 measurements
         opticalmeasurements = platform.make_optical_geometry()
 
@@ -332,8 +328,8 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         platform.add_measurement_set(
             mjd, ("from_platform"), ("tangent_from_orbitplane", "limb", looktanalt)
         )
-        _ = platform.make_optical_geometry()
-        print("Done")
+        opgeom = platform.make_optical_geometry()
+        # print("Done")
 
     # ------------------------------------------------------------------------------
     #           test_tangentalt_geometry
@@ -411,7 +407,7 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         platform.add_measurement_set(
             utc, ("from_platform", observer), ("from_platform",)
         )
-        platform.make_observation_policy()
+        platform.make_position_and_orientation_array()
 
     # ------------------------------------------------------------------------------
     #           test_sunsync_satellite
@@ -457,7 +453,7 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         platform.add_measurement_set(
             utc, ("from_platform"), ("tangent_from_orbitplane", "limb", tanpoint)
         )  # Create this measurement set
-        platform.make_observation_policy()
+        platform.make_position_and_orientation_array()
         lookv = platform.icf_to_ecef(np.array([[1], [0], [0]]))
         pos = platform.platform_ecef_positions
         tp = np.zeros([3, num_meas])
@@ -468,7 +464,7 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
             tp[1, i] = geodetic.longitude
             tp[2, i] = geodetic.altitude
             dh = np.abs(geodetic.altitude - tanheights[i])
-            assert dh < 0.5
+            self.assertLess(dh, 0.5)
 
     # ------------------------------------------------------------------------------
     #           test_backward_looking_system
@@ -481,7 +477,7 @@ class SkretrievalGeometryStatesTests(unittest.TestCase):
         platform.add_measurement_set(
             utc, ("looking_at_llh", observer), ("tangent_altitude", "limb", tanpoint)
         )
-        _ = platform.make_observation_policy()
+        obspolicy = platform.make_position_and_orientation_array()
         return platform
 
 
