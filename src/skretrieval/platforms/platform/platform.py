@@ -4,9 +4,9 @@ import numpy as np
 
 from ...core import OpticalGeometry
 from ..orientation_techniques import OrientationTechniques
-from .observationpolicy import ObservationPolicy
 from .platform_pointing import PlatformPointing
 from .platformlocator import PlatformLocation
+from .positionandorientationarray import PositionAndOrientationArray
 from .rotationmatrix import RotationMatrix
 
 
@@ -28,8 +28,8 @@ class Platform:
     #. Specify the position of the platform for a set of measurements using a variety of positioning techniques, see :ref:`positioning_technique` and :meth:`~.add_measurement_set`
     #. Specify the orientation of the platform for a set of measurements using a variety of orientation techniques, see :ref:`pointing_technique` and :meth:`~.add_measurement_set`.
     #. The orientations define the :ref:`pcf` and the positions define the :ref:`gcf`.
-    #. Create the internal :class:`~.ObservationPolicy` for the measurement set, see :meth:`~.make_observation_policy`.
-    #. Convert the :class:`~.ObservationPolicy` to arrays of position and instrument look vectors suitable for retrieval code.
+    #. Create the internal :class:`~.PositionAndOrientationArray` for the measurement set, see :meth:`~.make_observation_policy`.
+    #. Convert the :class:`~.PositionAndOrientationArray` to arrays of position and instrument look vectors suitable for retrieval code.
     """
 
     # -----------------------------------------------------------------------------
@@ -38,11 +38,10 @@ class Platform:
 
     def __init__(
         self,
-        observation_policy: ObservationPolicy = None,
+        observation_policy: PositionAndOrientationArray = None,
         platform_locator: PlatformLocation = None,
     ):
         """
-        Creates a new platform object.
 
         Parameters
         ----------
@@ -50,7 +49,7 @@ class Platform:
             Default None. This optional parameter can be used to add a platform location object such as a satellite,
             aircraft or ground site.
 
-        observation_policy: ObservationPolicy
+        observation_policy: PositionAndOrientationArray
             Default None. This optional parameter can use an existing :ref:`observationpolicy_class` object rather than
             create a new empty instance.
         """
@@ -59,10 +58,10 @@ class Platform:
         self._platform_pointing: PlatformPointing = PlatformPointing()
         self._platform_location: PlatformLocation = platform_locator
         self._orientationtechniques: OrientationTechniques = OrientationTechniques()
-        self._observation_policy: ObservationPolicy = (
+        self._position_and_orientation_array: PositionAndOrientationArray = (
             observation_policy
             if observation_policy is not None
-            else ObservationPolicy()
+            else PositionAndOrientationArray()
         )
 
     # ------------------------------------------------------------------------------
@@ -96,18 +95,20 @@ class Platform:
     #           observation_policy
     # ------------------------------------------------------------------------------
     @property
-    def observation_policy(self) -> ObservationPolicy:
+    def observation_policy(self) -> PositionAndOrientationArray:
         """
         Returns the current internal :ref:`observationpolicy_class` object.
 
         Returns
         -------
-        ObservationPolicy
+        PositionAndOrientationArray
             Returns the current internal :ref:`observationpolicy_class` object.
         """
-        if (self._observation_policy is None) or (self._orientationtechniques._isdirty):
-            self.make_observation_policy()
-        return self._observation_policy
+        if (self._position_and_orientation_array is None) or (
+            self._orientationtechniques._isdirty
+        ):
+            self.make_position_and_orientation_array()
+        return self._position_and_orientation_array
 
     # ------------------------------------------------------------------------------
     #           platform_ecef_positions
@@ -122,7 +123,7 @@ class Platform:
         np.ndarray(3,N)
             The X,Y,Z location of the platform for each RT calculation. The coordinates are in meters form the center of the Earth,
         """
-        return self._observation_policy.ecef_positions()
+        return self._position_and_orientation_array.ecef_positions()
 
     # ------------------------------------------------------------------------------
     #           icf_to_ecef_rotation_matrices
@@ -137,7 +138,7 @@ class Platform:
         np.ndarray(3,N)
             The X,Y,Z icf_to_ecef_rotation_matrices of the platform.
         """
-        return self._observation_policy.icf_to_ecef_rotation_matrix()
+        return self._position_and_orientation_array.icf_to_ecef_rotation_matrix()
 
     # ------------------------------------------------------------------------------
     #           num_exposures
@@ -159,11 +160,7 @@ class Platform:
     # ------------------------------------------------------------------------------
 
     def add_measurement_set(
-        self,
-        utc,
-        observer_definitions,
-        pointing_definitions,
-        instrument_internal_rotation=None,
+        self, utc, platform_position, platform_orientation, icf_orientation=None
     ):
         """
         Adds a set of *N* measurements definitions to the internal list of measurement sets. An overview of position and
@@ -185,7 +182,7 @@ class Platform:
             measurements and must match the size of the *utc* parameter parameters and *numparams* is the number of parameters
             required by the chosen :ref:`positioning_technique`. The second element of the tuple can be dropped if the *positioning technique*
             is *from_platform*.
-        look_vectors:
+        platform_orientation:
             A three element tuple. The first element of the tuple is a string that specifies the :ref:`pointing_technique`. The second element
             of the tuple specifies :ref:`rollcontrol` and the third element is an array of arrays of float. The array of arrays can be any Python, list of lists, tuples or arrays
             that can be coerced into a two dimensional array of shape **(N, numparams)** where *N* is the number of
@@ -205,26 +202,26 @@ class Platform:
         """
         self._orientationtechniques.add_measurement_set(
             utc,
-            observer_definitions,
-            pointing_definitions,
-            instrument_internal_rotation=instrument_internal_rotation,
+            platform_position,
+            platform_orientation,
+            icf_orientation=icf_orientation,
         )
 
     # ------------------------------------------------------------------------------
     #           make_observation_policy
     # ------------------------------------------------------------------------------
 
-    def make_observation_policy(self) -> ObservationPolicy:
+    def make_position_and_orientation_array(self) -> PositionAndOrientationArray:
         """
         Takes all the measurements from previous calls to :meth:`~.Platform.add_measurement_set` and converts them into
-        a list of measurements stored inside the internal instance of :class:`~.ObservationPolicy` object. This list of
+        a list of measurements stored inside the internal instance of :class:`~.PositionAndOrientationArray` object. This list of
         measurements can be converted to other formats, such as **OpticalGeometry** required by other parts of the
         ``skretrieval`` package. This method clears all the measurements that have been previously added.
         """
 
-        self._observation_policy.clear()
+        self._position_and_orientation_array.clear()
         self._orientationtechniques.make_observation_set(self)
-        return self._observation_policy
+        return self._position_and_orientation_array
 
     # ------------------------------------------------------------------------------
     #           make_optical_geometry
@@ -232,12 +229,23 @@ class Platform:
     def make_optical_geometry(self) -> list[OpticalGeometry]:
         """
         Takes all the measurements from previous calls to :meth:`~.Platform.add_measurement_set` and returns them as
-        a list of OpticalGeometry values which can be used by various retrievals.  The internal :class:`~.ObservationPolicy` is
+        a list of OpticalGeometry values which can be used by various retrievals.  The internal :class:`~.PositionAndOrientationArray` is
         also created at this time using method :meth:`~Platform.make_observation_policy`.
         """
 
-        policy = self.make_observation_policy()
-        return policy.to_optical_geometry()
+        position_and_orientation_array = self.make_position_and_orientation_array()
+        return position_and_orientation_array.to_optical_geometry()
+
+    # -----------------------------------------------------------------------------
+    #               make_ecef_position_and_lookvector
+    # -----------------------------------------------------------------------------
+    def make_ecef_position_and_lookvector(
+        self, icf_lookvectors=None, one_to_one: bool = False
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        position_and_orientation_array = self.make_position_and_orientation_array()
+        return position_and_orientation_array.to_ecef_position_and_look(
+            icf_lookvectors=icf_lookvectors, one_to_one=one_to_one
+        )
 
     # -----------------------------------------------------------------------------
     #               def add_current_state(self  )->int:
@@ -253,7 +261,9 @@ class Platform:
             The number of samples in the current observation policy
 
         """
-        return self._observation_policy.add_current_state(self._platform_pointing)
+        return self._position_and_orientation_array.add_current_state(
+            self._platform_pointing
+        )
 
     # -----------------------------------------------------------------------------
     #               clear_states(self):
@@ -264,7 +274,7 @@ class Platform:
         re-using a platform object to create a new measurement set.
         """
         self._orientationtechniques.clear()
-        self._observation_policy.clear()
+        self._position_and_orientation_array.clear()
 
     # ------------------------------------------------------------------------------
     #           icf_to_ecef

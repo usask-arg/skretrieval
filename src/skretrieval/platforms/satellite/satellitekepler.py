@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import datetime, timedelta
 from math import (
     acos,
@@ -19,9 +18,11 @@ from math import (
 
 import numpy as np
 
-import skretrieval.time
+import skretrieval.time as sktime
 from skretrieval.time.eci import gmst
 
+from .coe import ClassicalOrbitalElements, coe_from_state_vector
+from .gibbs import gibbs
 from .satellitebase import SatelliteBase
 
 
@@ -68,16 +69,12 @@ def value_exponent(x):
 #           class SatelliteKepler
 # -----------------------------------------------------------------------------
 class SatelliteKepler(SatelliteBase):
-    """
-    Implements a simple Kepler orbit orbiting the Earth. THe user will normally set all of the required
-    orbital parameters in the instance constructor.
-    """
-
     def __init__(
         self,
-        ut: np.datetime64 | (datetime | (float | str)),
+        utc: np.datetime64 | (datetime | (float | str)) = None,
         period_from_seconds: float | None = None,
         period_from_altitude: float | None = None,
+        period_from_semi_major_axis: float | None = None,
         inclination_radians: float | None = None,
         inclination_is_sun_sync: bool = False,
         mean_anomaly: float = 0.0,
@@ -89,15 +86,17 @@ class SatelliteKepler(SatelliteBase):
         orbitnumber: int = 0,
     ):
         """
-        Initializes the Kepler orbit. Multiple options are provided to describe the required orbit. A complete description
-        of the various parameters is given in :meth:`~.from_elements`
+        Implements a simple Kepler orbit around the Earth. Multiple options are provided to describe the required
+        orbit. A complete description of the various parameters is given in :meth:`~.from_elements`
 
         :param utc:  option identical to that described in :meth:`~.from_elements`
         :param period_from_seconds:  keyword option identical to that described in  :meth:`~.from_elements`
         :param period_from_altitude: keyword option identical to that described in  :meth:`~.from_elements`
+        :param period_from_semi_major_axis: keyword option identical to that described in  :meth:`~.from_elements`
         :param inclination_radians: keyword option identical to that described in  :meth:`~.from_elements`
         :param inclination_is_sun_sync: keyword option identical to that described in  :meth:`~.from_elements`
         :param mean_anomaly: keyword option identical to that described in  :meth:`~.from_elements`
+        :param true_anomaly: keyword option identical to that described in  :meth:`~.from_elements`
         :param argument_of_perigee: keyword option identical to that described in  :meth:`~.from_elements`
         :param localtime_of_ascending_node_hours: keyword option identical to that described in  :meth:`~.from_elements`
         :param longitude_of_ascending_node_degrees: keyword option identical to that described in  :meth:`~.from_elements`
@@ -107,9 +106,10 @@ class SatelliteKepler(SatelliteBase):
         """
 
         super().__init__()
-        utc = skretrieval.time.ut_to_datetime(ut)
+
         self.m_epoch: datetime = None  # The time when the kepler elements are defined.
-        self.m_mu: float = 3.98601210e14  # The gravitational parameter for Earth
+        # self.m_mu: float = 3.98601210E14                        # The gravitational parameter for Earth
+        self.m_mu: float = 3.986004418e14  # The gravitational parameter for Earth
         self.m_i: float = None  # inclination in radians
         self.m_raan: float = None  # Right Ascension of ascending node in radians
         self.m_argument_of_perigee: float = None  # Argument of perigee in radians
@@ -131,20 +131,27 @@ class SatelliteKepler(SatelliteBase):
             [3]
         )  # Get the unit vector perpendicular to the plane (ie in the direction of the angular momentum.
 
-        self.from_elements(
-            utc,
-            period_from_seconds=period_from_seconds,
-            period_from_altitude=period_from_altitude,
-            inclination_radians=inclination_radians,
-            inclination_is_sun_sync=inclination_is_sun_sync,
-            mean_anomaly=mean_anomaly,
-            argument_of_perigee=argument_of_perigee,
-            localtime_of_ascending_node_hours=localtime_of_ascending_node_hours,
-            longitude_of_ascending_node_degrees=longitude_of_ascending_node_degrees,
-            right_ascension_ascending_node=right_ascension_ascending_node,
-            eccentricity=eccentricity,
-            orbitnumber=orbitnumber,
-        )
+        if (utc is not None) and (
+            (period_from_seconds is not None)
+            or (period_from_altitude is not None)
+            or (period_from_semi_major_axis is not None)
+        ):
+            utcdatetime = sktime.ut_to_datetime(utc)
+            self.from_elements(
+                utcdatetime,
+                period_from_seconds=period_from_seconds,
+                period_from_altitude=period_from_altitude,
+                period_from_semi_major_axis=period_from_semi_major_axis,
+                inclination_radians=inclination_radians,
+                inclination_is_sun_sync=inclination_is_sun_sync,
+                mean_anomaly=mean_anomaly,
+                argument_of_perigee=argument_of_perigee,
+                localtime_of_ascending_node_hours=localtime_of_ascending_node_hours,
+                longitude_of_ascending_node_degrees=longitude_of_ascending_node_degrees,
+                right_ascension_ascending_node=right_ascension_ascending_node,
+                eccentricity=eccentricity,
+                orbitnumber=orbitnumber,
+            )
 
     # --------------------------------------------------------------------------
     #        SatelliteKepler::orbital_period
@@ -157,17 +164,60 @@ class SatelliteKepler(SatelliteBase):
         Returns
         -------
         datetime.timedelta
-            The orbital period.
+            The orbital period as a timedelta. Use timedelta method total_seconds() to get the period in seconds.
         """
         return timedelta(
             seconds=2.0 * pi * sqrt(self.m_a * self.m_a * self.m_a / self.m_mu)
         )
+
+    # ------------------------------------------------------------------------------
+    #           true_anomaly_to_mean_anomaly
+    # ------------------------------------------------------------------------------
+
+    @staticmethod
+    def true_anomaly_to_mean_anomaly(nu: float, e: float) -> float:
+        """
+        Converts True anomaly, :math:`\\nu`, to mean anomaly, :math:`M` by first calculating the eccentric anomaly,
+        :math:`E` using the formula,
+
+        ..  math::
+
+            \\tan \\frac{\\nu}{2} = \\sqrt{\\frac{1+e}{1-e}}\\tan\\frac{E}{2}
+
+        and then calculating the mean anomaly with
+
+        ..  math::
+
+            M = E -e\\,\\sin E
+
+        Parameters
+        ----------
+        nu : float
+            True anomaly in radians
+        e : float
+            eccentricity
+
+        Returns
+        -------
+        float
+            Mean anomaly in radians
+        """
+
+        factor = sqrt((1.0 - e) / (1.0 + e))
+        y = factor * sin(nu * 0.5)
+        x = cos(nu * 0.5)
+        E = 2.0 * atan2(y, x)
+        return E - e * sin(E)
 
     # -----------------------------------------------------------------------------
     #           eccentricity
     # -----------------------------------------------------------------------------
 
     def eccentricity(self) -> float:
+        """
+        Returns the eccentricity of the orbit ( 0.0 to 1.0)
+
+        """
         return self.m_e
 
     # --------------------------------------------------------------------------
@@ -183,7 +233,7 @@ class SatelliteKepler(SatelliteBase):
         Parameters
         ----------
         M: float
-            Mean Anomaly
+            Mean Anomaly in radians
         ecc: float
             Eccentricity
         eps: float
@@ -192,7 +242,7 @@ class SatelliteKepler(SatelliteBase):
         Returns
         -------
         float
-            The eccentric anomaly
+            The eccentric anomaly in radians
         """
 
         E = M  # first guess (which is exact for a circle)
@@ -217,16 +267,15 @@ class SatelliteKepler(SatelliteBase):
 
         Returns
         -------
-        The required inclination of the orbit in radians
+        float
+            The required inclination of the orbit in radians
         """
 
         cosi = -pow(
             semi_major_axis_meters / 12352000.0, 3.5
         )  # see https://en.wikipedia.org/wiki/Sun-synchronous_orbit
         if cosi < -1:
-            msg = (
-                "Orbit semi major axis must be less than 12352 km for sun sync to work"
-            )
+            msg = "The semi major axis of the orbit must be less than 12352 km for sun sync to work"
             raise Exception(msg)
         return acos(cosi)
 
@@ -234,12 +283,17 @@ class SatelliteKepler(SatelliteBase):
     #                   SatelliteKepler::update_eci_position
     # --------------------------------------------------------------------------
 
-    def update_eci_position(self, autc: np.datetime64 | datetime):
+    def update_eci_position(self, ut: np.datetime64 | datetime):
         """
-        Updates the ECI position
+        Updates the internal ECI position to the given time
+
+        Parameters
+        ----------
+        ut: datetime, np.datetime64, float, str
+            The time at which the new position is required.
         """
 
-        utc = skretrieval.time.ut_to_datetime(autc)
+        utc = sktime.ut_to_datetime(ut)
         if (self._m_time is None) or (
             utc != self._m_time
         ):  # Do we need to update eciposition or is it already the cached value
@@ -287,7 +341,7 @@ class SatelliteKepler(SatelliteBase):
 
         Returns
         --------
-        tuple( str,str)
+        tuple(str,str)
             Returns the two lines of the elements as a two element tuple of two strings
         """
         t = self.time
@@ -338,6 +392,7 @@ class SatelliteKepler(SatelliteBase):
         autc: datetime,
         period_from_seconds: float | None = None,
         period_from_altitude: float | None = None,
+        period_from_semi_major_axis: float | None = None,
         inclination_radians: float | None = None,
         inclination_is_sun_sync: bool = False,
         mean_anomaly: float = 0.0,
@@ -379,13 +434,19 @@ class SatelliteKepler(SatelliteBase):
 
         period_from_seconds : float
             specifies the orbital period in seconds. An alternative to specify the period is with the optional
-            parameter `period_from_altitude`. One, but only one, of the two optional methods must be used.
+            parameter `period_from_altitude` or `period_from_semi_major_axis`. One, but only one, of the three methods
+            must be used.
 
         period_from_altitude : float
              specifies the orbital period using the altitude of the satellite in meters. The altitude is nominal as we do not
              account for oblateness of the Earth etc. The radius of the Earth is internally assumed to be 6378000.0 meters.
-             An alternative to specify the period is with the optional parameter `period_from_seconds`.  One, but only one, of the
-             two optional methods must be used.
+             An alternative to specify the period is with the optional parameter `period_from_seconds` or `period_from_semi_major_axis`.
+             One, but only one, of the three optional methods must be used.
+
+        period_from_semi_major_axis : float
+             specifies the orbital period using the semi_major axis of the satellite in meters. An alternative method
+             to specify the period is with the optional parameter `period_from_seconds` or `period_from_altitude`. One,
+             but only one, of the three methods must be used.
 
         inclination_radians : float
             Specifes the inclination of the orbit in radians. An alternative method to specify the inclination is with the optional
@@ -433,17 +494,23 @@ class SatelliteKepler(SatelliteBase):
         """
         # ---- determine the period from user supplied period or user supplied altitude
 
-        utc = skretrieval.time.ut_to_datetime(autc)
+        utc = sktime.ut_to_datetime(autc)
         if period_from_seconds is not None:
-            assert (
-                period_from_altitude is None
-            ), "You cannot set both period_from_altitude and period_from_seconds"
+            assert (period_from_altitude is None) and (  # noqa: PT018
+                period_from_semi_major_axis is None
+            ), "You cannot set period from more than one method"
             N0 = 2 * pi / period_from_seconds
         elif period_from_altitude is not None:
+            assert (
+                period_from_semi_major_axis is None
+            ), "You cannot set period from more than one method"
             a = 6378135.0 + period_from_altitude
             N0 = sqrt(self.m_mu / (a * a * a))
+        elif period_from_semi_major_axis is not None:
+            a = period_from_semi_major_axis
+            N0 = sqrt(self.m_mu / (a * a * a))
         else:
-            msg = "You must set one of (i) period_from_altitude or (ii) period_from_seconds"
+            msg = "You must set one method of setting period"
             raise ValueError(msg)
         self.m_N0 = N0  # Get mean motion in radians per second
         self.m_a = pow(self.m_mu / (self.m_N0 * self.m_N0), 1.0 / 3.0)  # Get the semi
@@ -479,15 +546,15 @@ class SatelliteKepler(SatelliteBase):
             assert (
                 right_ascension_ascending_node is None
             ), "You cannot set both (i) longitude_of_ascending_node_degrees (or localtime_of_ascending_node_hours)  and  (ii) right_ascension_ascending_node"
-            st = gmst(utc)
+            st = degrees(gmst(utc))
             ra = (
-                st + longitude_of_ascending_node_degrees / 15.0
+                st + longitude_of_ascending_node_degrees
             )  # Get RA at the longitude in hours (0-24)
-            if ra >= 24.0:
-                ra -= 24.0  # put it in the range 0-24
+            if ra >= 360.0:
+                ra -= 360.0  # put it in the range 0-24
             if ra < 0.0:
-                ra += 24.0
-            RAAN = radians(ra * 15.0)  # and then convert to radians
+                ra += 360.0
+            RAAN = radians(ra)  # and then convert to radians
             mean_anomaly = (
                 -argument_of_perigee
             )  # Set the mean_anomaly so the satellite is close to the ascending node at the specified time
@@ -533,71 +600,100 @@ class SatelliteKepler(SatelliteBase):
         self.set_orbit_number_from_last_equator_crossing(orbitnumber, self.m_epoch)
         self.update_eci_position(self.m_epoch)
 
+    # ------------------------------------------------------------------------------
+    #           from_classical_orbital_elements
+    # ------------------------------------------------------------------------------
+    def from_classical_orbital_elements(
+        self,
+        utc: datetime | (np.datetime64 | (float | str)),
+        elements: ClassicalOrbitalElements,
+        orbitnumber: int = 0,
+    ):
+        """
+        Update this Kepler object so its orbit follows the values given in the Classical Orbital Elements structure.
+
+        Parameters
+        ----------
+        utc: datetime, np.datetime64, float, str
+            The time of the elements
+
+        elements: ClassicalOrbitalElements
+            The structure of classical orbital elements
+
+        orbitnumber: int
+            Set the orbit number to this value, default 0.
+        """
+        e = elements.e
+        nu = elements.TA
+        M = self.true_anomaly_to_mean_anomaly(nu, e)
+
+        self.from_elements(
+            utc,
+            period_from_semi_major_axis=elements.a,
+            inclination_radians=elements.i,
+            argument_of_perigee=elements.W,
+            right_ascension_ascending_node=elements.RA,
+            mean_anomaly=M,
+            eccentricity=e,
+            orbitnumber=orbitnumber,
+        )
+
     # --------------------------------------------------------------------------
     #                       from_state_vector
     # --------------------------------------------------------------------------
 
     def from_state_vector(
-        self, autc: datetime, orbitnumber: int, r: np.ndarray, v: np.ndarray
+        self,
+        utc: datetime | (np.datetime64 | (float | str)),
+        r: np.ndarray,
+        v: np.ndarray,
+        orbitnumber: int = 0,
     ):
         """
-        Update the object so it calculates orbits derived from the specified state vector
+        Update the Kepler object so it follows the orbit defined by the position and velocity state vector.
 
         Parameters
         ----------
-        platform_utc: datetime
+        utc: datetime, np.datetime64, float, str
             The coordinated universal time of the state vector.
-        orbitnumber: int
-            The orbit number at the epoch
         r:np.ndarray [3]
-            ECI coordinates at epoch (in metres) eciposition of the satellite
+            The ECI position of the satellite in meters
         v:np.ndarray[3]
-           ECI ecivelocity at epoch in m/s
+            The ECI velocity of the satellite in m/s
+        orbitnumber: int
+            The orbit number at the epoch, default 0
         """
 
-        logging.warning("Must update a few extra orbit parameters inside this code")
-        utc = skretrieval.time.ut_to_datetime(autc)
-        self.m_epoch = utc
-        h = np.cross(
-            r, v
-        )  # Get the angular momentum vector (which is constant for the orbit)
-        runit = UnitVector(r)  # Get the radial unit vector
-        self.m_h = Magnitude(h)  # Get the magnitude of the angular ecivelocity
-        self.m_zunit = UnitVector(
-            h
-        )  # Get the angular momementum unit vector (aka z axis of the orbital plane)
-        ev = np.cross(v, h) / self.m_mu - runit  # Get the eccentricity vector
-        self.m_e = Magnitude(ev)  # Get the eccentricity of the ellipse.
-        if (
-            self.m_e <= 0.0
-        ):  # if the eccentricity is zero (or even less due to round off
-            self.m_e = 0.0  # set the eccentricity to 0
-            ev = runit  # and let the perigree be at this point
-        self.m_xunit = UnitVector(
-            ev
-        )  # Get the eccentricity unitvector which points to the perigree (ie 0 degrees Mean Anomaly)
-        self.m_yunit = np.cross(
-            self.m_zunit, self.m_xunit
-        )  # Get the y axis of the orbital plane from z cross x
-        e2 = 1.0 - self.m_e * self.m_e  # 1 - e**2
-        self.m_a = np.dot(h, h) / (self.m_mu * e2)  # Get the semi major axis
-        self.m_b = self.m_a * sqrt(e2)  # Get the semi-minor axis
-        self.m_N0 = sqrt(
-            self.m_mu / (self.m_a * self.m_a * self.m_a)
-        )  # Get the mean motion  (radians per second)
+        elements = coe_from_state_vector(r, v)
+        self.from_classical_orbital_elements(utc, elements, orbitnumber=orbitnumber)
 
-        x = np.dot(
-            r, self.m_xunit
-        )  # Get the x component parallel to the semi-major axis
-        y = np.dot(
-            r, self.m_yunit
-        )  # Get the y component parallel to the semi-minor axis
-        sinE = y / self.m_b
-        cosE = x / self.m_a + self.m_e
-        E = atan2(sinE, cosE)  # use y = b*sin(E) and x = a*(cos(E)-e) to get E
-        self.m_M0 = E - self.m_e * sinE  # now get the mean anomaly at the epoch.
+    # --------------------------------------------------------------------------
+    #                       from_state_vector
+    # --------------------------------------------------------------------------
+    def from_three_positions(
+        self,
+        utc2: datetime,
+        r1: np.ndarray,
+        r2: np.ndarray,
+        r3: np.ndarray,
+        orbitnumber: int = 0,
+    ):
+        """
+        Determine the orbital elements from three position vectors andUpdate the Kepler object so it follows the calculates orbits derived from the specified state vector
 
-        self._m_time = None
-        self.m_epoch = utc
-        self.set_orbit_number_from_last_equator_crossing(orbitnumber, self.m_epoch)
-        self.update_eci_position(self.m_epoch)
+        Parameters
+        ----------
+        utc2: datetime, np.datetime64, float, str
+            The coordinated universal time of the second point.
+        r1:np.ndarray [3]
+            The fiirst ECI position of the satelite in meters
+        r2:np.ndarray [3]
+            ECI coordinates at epoch (in metres) eciposition of the satellite
+        r3:np.ndarray [3]
+            ECI coordinates at epoch (in metres) eciposition of the satellite
+        orbitnumber: int
+            The orbit number at the epoch
+        """
+
+        v2 = gibbs(r1, r2, r3)
+        self.from_state_vector(utc2, r2, v2, orbitnumber=orbitnumber)

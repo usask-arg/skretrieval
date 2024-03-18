@@ -13,13 +13,16 @@ import numpy as np
 from skretrieval.geodetic import geodetic
 from skretrieval.time import ut_to_datetime64
 
+# from ..platform import Platform
 from ..platform.rotationmatrix import UnitVectors
 from .standard_orientation_techniques import (
     _technique_set_boresight_look_at_location_llh,
     _technique_set_boresight_look_at_location_orbitangle,
     _technique_set_boresight_look_at_location_xyz,
     _technique_set_boresight_pointing_from_unitvectors,
-    _technique_set_instrument_internal_orientation,
+    _technique_set_icf_look_from_xyz,
+    _technique_set_icf_orientation_from_azi_elev,
+    _technique_set_icf_orientation_no_operation,
     _technique_set_limb_look_vectors_from_unit_xyz,
     _technique_set_look_vectors_from_tangent_altitude,
     _technique_set_observer_to_look_in_azi_elev,
@@ -107,11 +110,9 @@ class PointingAlgorithms:
             self.platform.platform_pointing.force_pcf_rotation_matrix(G)
         else:
             logging.warning(
-                "PointingAlgorithms.set_limb_boresight_to_look_at_tangent_altitude, the target altitude is not between the observer altitude and 5 km below the ground",
-                extra={
-                    "target_tangent_altitude": target_tangent_altitude,
-                    "maxaltitude": maxaltitude,
-                },
+                "PointingAlgorithms.set_limb_boresight_to_look_at_tangent_altitude, the target altitude {} is not between the observer altitude {} and 5 km below the ground".format(  # noqa: G001
+                    target_tangent_altitude, maxaltitude
+                )
             )
         return ok
 
@@ -157,8 +158,9 @@ class PointingAlgorithms:
             self.platform.platform_pointing.force_pcf_rotation_matrix(G)
         else:
             logging.warning(
-                "PointingAlgorithms.set_limb_boresight_from_lookvector, the tangent point is not in front of the observer or is more than 5000m below the ground. It has been discarded",
-                extra={"altitude": altitude},
+                "PointingAlgorithms.set_limb_boresight_from_lookvector, the tangent point is not in front of the observer or is more than 5000m below the ground [{}]. It has been discarded".format(  # noqa: G001
+                    altitude
+                )
             )
         return ok
 
@@ -468,26 +470,30 @@ class OrientationTechniques:
         ] = (
             {}
         )  # A dictionary of positioning tecniques. Each entry of the form [name, function]
-        self._lookvector_convertors: dict[
+        self._platform_orientation_convertors: dict[
             str, tuple[Callable[[PointingAlgorithms, np.ndarray, str], bool], list[int]]
         ] = (
             {}
         )  # A dictionary of orientation techniques. Each entry of the form [name, function]
+        self._icf_look_vector_convertors: dict[
+            str,
+            tuple[Callable[[Platform, np.datetime64, np.ndarray], bool], list[int]],
+        ] = (
+            {}
+        )  # A dictionary of ICF look vector techniques. Each entry of the form [name, function]
         self._position_definitions: list[
             tuple[str, np.ndarray | int]
         ] = (
             []
         )  # A list of various representations of position specifications. Each entry of the form [technique, data_array]
-        self._look_definitions: list[
+        self._platform_orientation_definitions: list[
             tuple[str, np.ndarray | int, str]
         ] = (
             []
-        )  # A list of various representations of look vector specifications. Each entry of the form [technique, data_array, roll_control]
-        self._turntable_data: list[
-            np.ndarray
-        ] = (
-            []
-        )  # A list of instrument internal orientation arrays of azimuth, elevation and roll in the instrument control frame.
+        )  # A list of various representations of platform orientation techniques and data . Each entry of the form [technique, data_array, roll_control]
+        self._icf_lookvector_definitions: list[
+            tuple[str, np.ndarray | int, str]
+        ] = []  # A list of various representations of ICF look vector specifications.
         self._utc: list[
             np.ndarray
         ] = []  # A list of arrays of measurement times of numpy.datetime64['us']
@@ -508,49 +514,62 @@ class OrientationTechniques:
             [5],
         )
 
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "tangent_xyz_look", _technique_set_limb_look_vectors_from_unit_xyz, [3, 4]
         )  # Set look vectors using ITRF/ecef xyz location vectors
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "tangent_altitude",
             _technique_set_look_vectors_from_tangent_altitude,
             [2, 3],
         )  # specifies
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "tangent_from_orbitplane",
             _technique_set_boresight_look_at_location_orbitangle,
             [2, 3],
         )
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "location_xyz", _technique_set_boresight_look_at_location_xyz, [3, 4]
         )
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "location_llh", _technique_set_boresight_look_at_location_llh, [3, 4]
         )
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "unit_vectors", _technique_set_boresight_pointing_from_unitvectors, [6]
         )
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "azi_elev", _technique_set_observer_to_look_in_azi_elev, [2, 3]
         )
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "yaw_pitch_roll", _technique_set_observer_to_look_in_azi_elev, [2, 3]
         )
-        self.add_lookvector_convertor(
+        self.add_platform_orientation_convertor(
             "from_platform", _technique_set_platform_pointing_from_platform, [0]
         )
 
+        self.add_icf_look_vector_convertor(
+            "azi_elev", _technique_set_icf_orientation_from_azi_elev, [2]
+        )
+        self.add_icf_look_vector_convertor(
+            "xyz", _technique_set_icf_look_from_xyz, [1, 3]
+        )
+        self.add_icf_look_vector_convertor(
+            "nop", _technique_set_icf_orientation_no_operation, [0]
+        )
+
     # ------------------------------------------------------------------------------
-    #           add_lookvector_convertor
+    #           add_platform_orientation_convertor
     # ------------------------------------------------------------------------------
-    def add_lookvector_convertor(
+    def add_platform_orientation_convertor(
         self,
-        looktype: str,
+        orientationtype: str,
         convertor_function: Callable[[PointingAlgorithms, np.ndarray, str], bool],
         num_user_params: list[int],
     ):
-        key = looktype.lower()
-        self._lookvector_convertors[key] = (convertor_function, num_user_params)
+        key = orientationtype.lower()
+        self._platform_orientation_convertors[key] = (
+            convertor_function,
+            num_user_params,
+        )
 
     # ------------------------------------------------------------------------------
     #           add_position_convertor
@@ -564,10 +583,21 @@ class OrientationTechniques:
         key = positiontype.lower()
         self._position_convertors[key] = (convertor_function, num_user_params)
 
+    # ------------------------------------------------------------------------------
+    #           add_position_convertor
+    # ------------------------------------------------------------------------------
+    def add_icf_look_vector_convertor(
+        self,
+        lookvectorype: str,
+        convertor_function: Callable[[Platform, np.datetime64, np.ndarray], bool],
+        num_user_params: list[int],
+    ):
+        key = lookvectorype.lower()
+        self._icf_look_vector_convertors[key] = (convertor_function, num_user_params)
+
     # -----------------------------------------------------------------------------
     #           numsamples
     # -----------------------------------------------------------------------------
-
     def num_measurements(self) -> int:
         """
         Returns the number of samples in this observation policy
@@ -585,15 +615,14 @@ class OrientationTechniques:
     # -----------------------------------------------------------------------------
     #           clear
     # -----------------------------------------------------------------------------
-
     def clear(self):
         """
         Clears the current list of platform states inside the observation policy. This method should be called
         before starting a new observation policy
         """
         self._position_definitions.clear()
-        self._look_definitions.clear()
-        self._turntable_data.clear()
+        self._platform_orientation_definitions.clear()
+        self._icf_lookvector_definitions.clear()
         self._utc.clear()
 
     # ------------------------------------------------------------------------------
@@ -602,19 +631,31 @@ class OrientationTechniques:
     def _check_position_converter_key(self, key: str) -> bool:
         ok = self._position_convertors.get(key) is not None
         if not ok:
-            msg = "The position converter keyword <{:s}> is not in the position converter dictionary. You may need to manually add this function".format(
+            msg = "The position converter keyword <{:s}> is not in the position converter dictionary. You will need to manually add this function with method OrientationTechniques.add_position_convertor".format(
                 key
             )
             raise ValueError(msg)
         return ok
 
     # ------------------------------------------------------------------------------
-    #           _check_look_vector_converter_key
+    #           _check_platform_orientation_converter_key
     # ------------------------------------------------------------------------------
-    def _check_look_vector_converter_key(self, key: str) -> bool:
-        ok = self._lookvector_convertors.get(key) is not None
+    def _check_platform_orientation_converter_key(self, key: str) -> bool:
+        ok = self._platform_orientation_convertors.get(key) is not None
         if not ok:
-            msg = "The lookvector converter keyword <{:s}> is not in the position converter dictionary. You may need to manually add this function".format(
+            msg = "The platform orientation converter keyword <{:s}> is not in the platform orientation converter dictionary. You will need to manually add this function with method OrientationTechniques.add_platform_orientation_convertor".format(
+                key
+            )
+            raise ValueError(msg)
+        return ok
+
+    # ------------------------------------------------------------------------------
+    #           _check_icf_look_vector_converter_key
+    # ------------------------------------------------------------------------------
+    def _check_icf_look_vector_converter_key(self, key: str) -> bool:
+        ok = self._icf_look_vector_convertors.get(key) is not None
+        if not ok:
+            msg = "The ICF look vector converter keyword <{}> is not in the platform orientation converter dictionary. You will need to manually add this function with method OrientationTechniques.add_icf_look_vector_convertor".format(
                 key
             )
             raise ValueError(msg)
@@ -673,18 +714,20 @@ class OrientationTechniques:
         return numpositions, positiondata, key
 
     # ------------------------------------------------------------------------------
-    #           _decode_orientation_entry
+    #           _decode_platform_orientation_entry
     # ------------------------------------------------------------------------------
-    def _decode_orientation_entry(self, look_vectors):
+    def _decode_platform_orientation_entry(self, platform_orientation_data):
         roll_control = "undefined"  # default value of roll if no value passed in
         data = None  # default value of data is no data are passed in
-        if isinstance(look_vectors, str):
-            key = look_vectors
+        if isinstance(platform_orientation_data, str):
+            key = platform_orientation_data
         else:  # otherwise a dictionary has been passed
-            key = look_vectors[0]  # get the technique key from the first element
-            if len(look_vectors) > 1:
-                roll_control = look_vectors[1]
-                data = look_vectors[2]
+            key = platform_orientation_data[
+                0
+            ]  # get the technique key from the first element
+            if len(platform_orientation_data) > 1:
+                roll_control = platform_orientation_data[1]
+                data = platform_orientation_data[2]
             else:
                 data = None  # get the technique parameter data from the second element. None if there is no second element.
                 roll_control = "undefined"
@@ -692,10 +735,10 @@ class OrientationTechniques:
         if key == "from_platform":
             data = None
             roll_control = "undefined"
-        self._check_look_vector_converter_key(
+        self._check_platform_orientation_converter_key(
             key
         )  # check that the look-vector technique is supported
-        num_params = self._lookvector_convertors[key][
+        num_params = self._platform_orientation_convertors[key][
             1
         ]  # get the number of parameters expected from this look vector technique
         lookdata = self._coerce_to_vector(
@@ -703,6 +746,36 @@ class OrientationTechniques:
         )  # coerce the technique parameter data into a 2d-array of [num_params,N]
         numlooks = lookdata.shape[0] if (lookdata is not None) else 0
         return numlooks, lookdata, key, roll_control
+
+    # ------------------------------------------------------------------------------
+    #           _decode_instrument_internal_rotation
+    # ------------------------------------------------------------------------------
+    def _decode_icf_look_vector_entry(self, icf_look_vectors):
+        data = None  # default value of data is no data are passed in
+        if isinstance(icf_look_vectors, str):
+            key = icf_look_vectors
+        else:  # otherwise a dictionary has been passed
+            if icf_look_vectors is not None:
+                key = icf_look_vectors[
+                    0
+                ]  # get the technique key from the first element
+                if len(icf_look_vectors) > 1:
+                    data = icf_look_vectors[1]
+            else:
+                data = None  # get the technique parameter data from the second element. None if there is no second element.
+                key = "nop"
+
+            self._check_icf_look_vector_converter_key(
+                key
+            )  # check that the look-vector technique is supported
+            num_params = self._icf_look_vector_convertors[key][
+                1
+            ]  # get the number of parameters expected from this look vector technique
+            lookdata = self._coerce_to_vector(
+                data, num_params
+            )  # coerce the technique parameter data into a 2d-array of [num_params,N]
+            numlooks = lookdata.shape[0] if (lookdata is not None) else 1
+        return numlooks, lookdata, key
 
     # ------------------------------------------------------------------------------
     #           _decode_instrument_internal_rotation
@@ -749,9 +822,9 @@ class OrientationTechniques:
                 )
             )
         ),
-        observer_positions: tuple[str, Sequence | np.ndarray],
-        look_vectors: tuple[str, str, Sequence | np.ndarray],
-        instrument_internal_rotation: Sequence | (np.ndarray | None) = None,
+        platform_position: tuple[str, Sequence | np.ndarray],
+        platform_orientation: tuple[str, str, Sequence | np.ndarray],
+        icf_orientation: tuple[str, str, Sequence | np.ndarray] | None = None,
     ):
         """
         Adds a set of measurements to the parent :class:~.Instrument`. The call adds **N** distinct measurements with
@@ -769,26 +842,21 @@ class OrientationTechniques:
         roll_control: str
             The technique used to specify the location of zero roll in the :ref:`ecef` system. A description of values can
             be found in :ref:`rollcontrol`.
-        observer_positions: Tuple[str, sequence]
+        platform_position: Tuple[str, sequence]
             A two element tuple. The first element of the tuple is a string that specifies the positioning technique. The second element
             of the tuple is a sequence or array (or None) that contains parameter data for the selected technique. The array should be of size (Npts, NParam)
             where  *Npts* is the number of points and *Nparam* is the number of parameters for the technique, e.g. (N,3), in the measurement set. The
             second element may be None if the technique is `from_platform`.
-        look_vectors:
+        platform_orientation:
             A three element tuple. The first element of the tuple is a string that specifies the orientation technique. The second element
             of the tuple is a sequence or array (or None) that contains parameter data for the selected technique. The array should be of size (Npts, NParam)
             where  *Npts* is the number of points and *Nparam* is the number of parameters for the technique, e.g. (N,3), in the measurement set. The
             second element may be None if the technique is `from_platform`.
-        instrument_internal_rotation:
-            Optional. An array that specifies the internal rotation of the instrument within the :ref:`icf`. This is intended to
-            provide support for tilting mirrors and turntables attached to the instrument that redirect the instrument boresight independently
-            of the platform. The array specifies the azimuth, elevation and roll of the instrument boresight in the :ref:`icf`.
-            The array is a sequence or array that can be sensibly coerced into an array of size (N,2) or (N,3) where N is the number of measurements.
-            N can be 1 in which case the array size is broadcast to match the number of measurements inferred from the other parameters. Elements [:,0] is the azimuth in degrees  of the
-            instrument boresight in the instrument control frame, left handed rotation around :math:`\\hat{z}_{ICF}`. Elements [:,1] are the elevation in
-            degrees of the instrument boresight in the instrument control frame, left handed rotation around the rotated :math:`\\hat{y}_{ICF}` axis.
-            Elements[:,2], which are are optional, are the roll of the instrument boresight in degrees, right handed rotation around the rotated  :math:`\\hat{x}_{ICF}` axis.
-            The roll defaults to 0.0 if not supplied.
+        icf_orientation:
+            Optional. A two element tuuple.  This option allows used to specify an array of instantaneous look vectors in the :ref:`icf`.
+            The first element of the tuple is a string that specifies the ref:`icf` look vector  technique. The second element
+            of the tuple is a sequence or array (or None) that contains parameter data for the selected technique. The array should be of size (Numlookvector, NParam)
+            where  *Numlookvector* is the number of instantaneous look vectors points and *Nparam* is the number of parameters for the look vector technique, e.g. (N,3),
         """
 
         utdata = ut_to_datetime64(
@@ -801,15 +869,18 @@ class OrientationTechniques:
 
         numtimes = utdata.size  # Get the number of time
         numpositions, positiondata, positionkey = self._decode_position_entry(
-            observer_positions
+            platform_position
         )  # Get the number of positions, the key
-        numlooks, lookdata, orientkey, roll_control = self._decode_orientation_entry(
-            look_vectors
+        (
+            numorientations,
+            orientationdata,
+            orientkey,
+            roll_control,
+        ) = self._decode_platform_orientation_entry(platform_orientation)
+        numicflook, icflookdata, icfkey = self._decode_icf_look_vector_entry(
+            icf_orientation
         )
-        numturntable, turntabledata = self._decode_instrument_internal_rotation(
-            instrument_internal_rotation
-        )
-        maxpts = np.max((numtimes, numpositions, numlooks, numturntable))
+        maxpts = np.max((numtimes, numpositions, numorientations, numicflook))
 
         if numtimes == 1:
             utdata = np.resize(
@@ -819,7 +890,7 @@ class OrientationTechniques:
         else:
             if numtimes != maxpts:
                 msg = "The number of time parameters given {} does not equal 1 or the number of looks {} and  and orientations given {}".format(
-                    numtimes, numpositions, numlooks
+                    numtimes, numpositions, numorientations
                 )
                 raise ValueError(msg)
 
@@ -838,35 +909,35 @@ class OrientationTechniques:
         else:
             if numpositions != maxpts:
                 msg = "The number of position parameters given {} does not equal 1 or the number of times {} and orientations given {}".format(
-                    numpositions, numtimes, numlooks
+                    numpositions, numtimes, numorientations
                 )
                 raise ValueError(msg)
 
         if (
             orientkey == "from_platform"
         ):  # if the technique parameter array returns as None
-            lookdata = maxpts  # set the technique parameter data as the number of times, used when passed to the technique algorithm
-        elif numlooks == 1:  # otherwise we have valied technique parameter data
-            lookdata = np.tile(lookdata, [maxpts, 1])
+            orientationdata = maxpts  # set the technique parameter data as the number of times, used when passed to the technique algorithm
+        elif numorientations == 1:  # otherwise we have valied technique parameter data
+            orientationdata = np.tile(orientationdata, [maxpts, 1])
         else:
-            if numlooks != maxpts:
+            if numorientations != maxpts:
                 msg = "The number of orientation parameters given {} does not equal 1 or the number of times {} and positions {} given".format(
-                    numlooks, numtimes, numpositions
+                    numorientations, numtimes, numpositions
                 )
                 raise ValueError(msg)
 
-        if numturntable == 1:
-            turntabledata = np.tile(turntabledata, [maxpts, 1])
+        if (numicflook == 1) and (icflookdata is not None):
+            icflookdata = np.tile(icflookdata, [maxpts, 1])
         self._utc.append(
             utdata
         )  # Add the UTC times now that they are finalized in size
         self._position_definitions.append(
             (positionkey, positiondata)
         )  # if it is then append the definitions to the internal measurement set within this object
-        self._look_definitions.append(
-            (orientkey, lookdata, roll_control)
+        self._platform_orientation_definitions.append(
+            (orientkey, orientationdata, roll_control)
         )  # append these look vectors definitions to the internal measurement set within thgis object.
-        self._turntable_data.append(turntabledata)
+        self._icf_lookvector_definitions.append((icfkey, icflookdata))
         self._isdirty = True
 
     # ------------------------------------------------------------------------------
@@ -875,7 +946,7 @@ class OrientationTechniques:
     def make_observation_set(self, platform: Platform):
         """
         Converts the internal list of measurements from previous calls to :meth:`~.add_measurement_set` into an
-        an internally cached :class:`~.ObservationPolicy`. This method is normally called by the :class:`~.Platform` class.
+        an internally cached :class:`~.PositionAndOrientationArray`. This method is normally called by the :class:`~.Platform` class.
         The internal list of measurement sets has only been cached up to this point. This code goes through the measurements
         and generates all the necessary platform positions and rotation matrices using all the specified techniques.
 
@@ -886,7 +957,7 @@ class OrientationTechniques:
         """
         pointingalgorithms = PointingAlgorithms(platform)
         postype = "----"
-        looktype = "----"
+        orientationtype = "----"
         ilookseg = -1
         numlook = -1
         ilook = 0
@@ -917,18 +988,24 @@ class OrientationTechniques:
                     iturn >= numturn
                 ):  # if we have exceeded the bounds of the current segment
                     iturnseg += 1  # then step to the next segment (it whould work as we have already validated data sets)
-                    currentturn = self._turntable_data[
-                        iturnseg
-                    ]  # get the name of the position technique and the current position technique data for this segment
-                    iturn = 0  # Reset our position in the current segment
-                    numturn = currentturn.shape[
+                    icflooktype, currentturn = self._icf_lookvector_definitions[
+                        ilookseg
+                    ]  # get the techniquename  to calculate ICF look vectors and the parameter data for this setting
+                    icflookfunc = self._icf_look_vector_convertors[icflooktype][
                         0
-                    ]  # then get the number of positions ion this segment
-                thisturn = currentturn[
-                    iturn, :
-                ]  # get the technique parameter data for this measurement point.
-                ok3 = _technique_set_instrument_internal_orientation(
-                    platform, utc, thisturn
+                    ]  # get the ICF look vector technique function
+                    iturn = 0  # Reset our position in the current segment
+                    assert (currentturn is None) or (
+                        type(currentturn) is np.ndarray
+                    )  # We must have an array. There is no "from_platform" option
+                    numturn = (
+                        currentturn.shape[0] if currentturn is not None else 1
+                    )  # then get the number of positions in this segment
+                thisturn = (
+                    currentturn[iturn, :] if currentturn is not None else None
+                )  # get the technique parameter data for this measurement point.
+                ok3 = icflookfunc(
+                    platform, thisturn
                 )  # Call the positioning technique function. Its sets the Platform position State. It returns false if it fails.
 
                 ipos += 1  # Step to the next position entry in the current segment of position entries
@@ -967,10 +1044,14 @@ class OrientationTechniques:
                     ilookseg += (
                         1  # then step to the next segment. It should always work
                     )
-                    looktype, currentlook, roll_control = self._look_definitions[
+                    (
+                        orientationtype,
+                        currentlook,
+                        roll_control,
+                    ) = self._platform_orientation_definitions[
                         ilookseg
                     ]  # get the technique, parameter data and roll control for this settings
-                    lookfunc = self._lookvector_convertors[looktype][
+                    lookfunc = self._platform_orientation_convertors[orientationtype][
                         0
                     ]  # get the look technique function
 
@@ -987,15 +1068,9 @@ class OrientationTechniques:
                     platform.add_current_platform_state()
                 else:
                     logging.warning(
-                        "Rejecting point from the observation policy",
-                        extra={
-                            "iutc": iutc,
-                            "Positioning technique": postype,
-                            "status": ok1,
-                            "Pointing technique": looktype,
-                            "status2": ok2,
-                            "Rotation status": ok3,
-                        },
+                        "Rejecting point {} from the observation policy. Positioning technique={} status = {}, Pointing Technique={} status = {}, Internal Rotation status = {}".format(  # noqa: G001
+                            iutc, postype, ok1, orientationtype, ok2, ok3
+                        )
                     )
                     allok = False
         if not allok:
