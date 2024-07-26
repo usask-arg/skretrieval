@@ -7,7 +7,7 @@ import sasktran as sk
 import xarray as xr
 from scipy import sparse
 
-from skretrieval.tomography.grids import OrbitalPlaneGrid
+from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
 
 
 class EngineHRTwoDim:
