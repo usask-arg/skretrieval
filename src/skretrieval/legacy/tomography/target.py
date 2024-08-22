@@ -10,12 +10,12 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
 from skretrieval.core.radianceformat import RadianceBase
+from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
 from skretrieval.retrieval import RetrievalTarget
 from skretrieval.retrieval.tikhonov import (
     two_dim_horizontal_second_deriv,
     two_dim_vertical_second_deriv,
 )
-from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
 
 
 class TwoDimTarget(RetrievalTarget):
@@ -28,7 +28,6 @@ class TwoDimTarget(RetrievalTarget):
         vert_tikh_factor=0,
         use_apriori_for_bounds=True,
         apriori_influence=None,
-        bounded_apriori_influence=None
     ):
         """
         A generic two dimensional retrieval target.  This class implements the two-dimensional nature of the retrieval,

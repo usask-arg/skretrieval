@@ -57,6 +57,7 @@ class OrbitalPlaneClimatology(ClimatologyBase):
     def __setitem__(self, item, value):
         self._values[item] = np.asarray(value)
 
+
 class OrbitalPlaneAlbedo(sk.BRDF):
     def __init__(self, grid: OrbitalPlaneGrid):
         self._values = np.zeros(grid._numretprof)
@@ -78,7 +79,11 @@ class OrbitalPlaneAlbedo(sk.BRDF):
         user_clim = sk.ClimatologyUserDefined2D(
             np.rad2deg(local_angles),
             np.array([0.0, 100000.0]),
-            {"SKCLIMATOLOGY_ALBEDO": np.tile(self._values[angleidx], (2, 1)).transpose()},
+            {
+                "SKCLIMATOLOGY_ALBEDO": np.tile(
+                    self._values[angleidx], (2, 1)
+                ).transpose()
+            },
             normalandreference[3:],
             normalandreference[:3],
         )

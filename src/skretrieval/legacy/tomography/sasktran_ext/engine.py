@@ -8,7 +8,6 @@ import xarray as xr
 from scipy import sparse
 
 from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
-from skretrieval.legacy.tomography.sasktran_ext.climatology import OrbitalPlaneAlbedo
 
 
 class EngineHRTwoDim:
