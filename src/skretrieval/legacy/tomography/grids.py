@@ -133,8 +133,8 @@ class OrbitalPlaneGrid:
             possibleretangles = localangles
         elif self._placementtype == "uniform":
             possibleretangles = possibleretangles[
-                (possibleretangles > self.cutoff)
-                & (possibleretangles < (totalanglechange - self.cutoff))
+                (possibleretangles >= self.cutoff)
+                & (possibleretangles <= (totalanglechange - self.cutoff))
             ]
 
             if self._extend > 0:
