@@ -15,7 +15,7 @@ from skretrieval.retrieval.tikhonov import (
     two_dim_horizontal_second_deriv,
     two_dim_vertical_second_deriv,
 )
-from skretrieval.tomography.grids import OrbitalPlaneGrid
+from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
 
 
 class TwoDimTarget(RetrievalTarget):
@@ -28,6 +28,7 @@ class TwoDimTarget(RetrievalTarget):
         vert_tikh_factor=0,
         use_apriori_for_bounds=True,
         apriori_influence=None,
+        bounded_apriori_influence=None
     ):
         """
         A generic two dimensional retrieval target.  This class implements the two-dimensional nature of the retrieval,
@@ -150,12 +151,12 @@ class TwoDimTarget(RetrievalTarget):
             return ~np.isnan(x_mask.flatten())
         return x_mask.flatten()
 
-    def zero_apriori_from_mask(self, gamma):
+    def zero_apriori_from_mask(self, gamma, mask=True):
         """
         Takes a tikhonov regularization matrix and zeros out elements that are affected by a bounded state vector
         profile
         """
-        bounded_mask = self.state_vector_bounded_mask()
+        bounded_mask = self.state_vector_bounded_mask(mask)
 
         # Any row of gamma that has contribution from a bounded value should be zero'd out
         row_contrib = np.abs(gamma) @ (bounded_mask).astype(int)
@@ -181,6 +182,9 @@ class TwoDimTarget(RetrievalTarget):
             image_l1 = l1_data.image_radiance(image_idx, dense_wf=True)
 
             image_meas_vec = self._image_measurement_vector(image_l1, image_idx)
+
+            # Don't need the WF anymore
+            l1_data.del_wf(image_idx)
 
             for key, item in image_meas_vec.items():
                 if len(item.shape) == 1:
