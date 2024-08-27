@@ -374,6 +374,13 @@ class Rodgers(Minimizer):
                         retrieval_target
                     )
 
+                    if self._apply_cholesky_scaling:
+                        x_scaler_inv = sparse.diags(np.sqrt(inv_Sa.diagonal()))
+                        x_scaler = sparse.diags(1 / np.sqrt(inv_Sa.diagonal()))
+                    else:
+                        x_scaler_inv = sparse.eye(len(x_a))
+                        x_scaler = x_scaler_inv
+
                     x_a = x_scaler_inv @ x_a
 
                     inv_Sa = x_scaler @ inv_Sa @ x_scaler
@@ -385,6 +392,13 @@ class Rodgers(Minimizer):
                         inv_Sy,
                         good_meas,
                     ) = self._measurement_parameters(retrieval_target, measurement_l1)
+                    if self._apply_cholesky_scaling:
+                        y_scaler = sparse.diags(1 / np.sqrt(inv_Sy.diagonal()))
+                        y_scaler_inv = sparse.diags(np.sqrt(inv_Sy.diagonal()))
+                    else:
+                        y_scaler = sparse.eye(len(y_meas))
+                        y_scaler_inv = sparse.eye(len(y_meas))
+
                     y_meas = y_scaler_inv @ y_meas
                     inv_Sy = y_scaler @ inv_Sy @ y_scaler
 
@@ -419,6 +433,7 @@ class Rodgers(Minimizer):
 
         output_dict["ys"] = ys
         output_dict["y_meas"] = y_meas_dict["y"]
+        output_dict["forward_l1"] = forward_l1
 
         if self._max_iter > 0:
             output_dict["chi_sq_meas"] = chi_sq_only_meas

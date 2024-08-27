@@ -219,6 +219,11 @@ class RadianceOrbit:
             return radiance, wfs
         return radiance
 
+    def del_wf(self, index):
+        if self._wf is not None:
+            for wf in self._wf_names:
+                self._data[index].data = self._data[index].data.drop(wf)
+
     @property
     def num_images(self):
         return len(self._data)

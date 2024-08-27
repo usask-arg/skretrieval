@@ -54,7 +54,7 @@ class PlatformPointing:
         self._utc: np.datetime64 = (
             None  #: Platform pointing also stores the UTC time as a convenience
         )
-        self._geo = geodetic()  #: An instance of sasktran Geodetic object.
+        self._geo: geodetic = geodetic()  #: An instance of sasktran Geodetic object.
         self._geolocation: np.ndarray = np.zeros([3])
         self._local_west: np.ndarray = None
         self._local_south: np.ndarray = None
@@ -259,6 +259,17 @@ class PlatformPointing:
         Returns the geocentric unit vector of up at the current location of the platform. Only valid after a successful call to set_platform_location
         """
         return self._local_up
+
+    # -----------------------------------------------------------------------------
+    #               reset_icf_rotation_matrices
+    # -----------------------------------------------------------------------------
+    def reset_icf_rotation_matrices(self):
+        """
+        Resets the IRM and ICF_to_PCF matrices to unity.
+        :return:
+        """
+        self._IRM = RotationMatrix(RotationMatrix.IUnit())
+        self._ICF_to_PCF = RotationMatrix(RotationMatrix.IUnit())
 
     # -----------------------------------------------------------------------------
     #           force_pcf_rotation_matrix

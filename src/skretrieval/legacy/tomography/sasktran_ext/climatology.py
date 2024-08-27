@@ -5,7 +5,7 @@ import sasktran as sk
 import sasktranif.sasktranif as skif
 from sasktran.climatology import ClimatologyBase
 
-from skretrieval.tomography.grids import OrbitalPlaneGrid
+from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
 
 
 class OrbitalPlaneClimatology(ClimatologyBase):
@@ -56,3 +56,46 @@ class OrbitalPlaneClimatology(ClimatologyBase):
 
     def __setitem__(self, item, value):
         self._values[item] = np.asarray(value)
+
+
+class OrbitalPlaneAlbedo(sk.BRDF):
+    def __init__(self, grid: OrbitalPlaneGrid):
+        self._values = np.zeros(grid._numretprof)
+        self._grid = grid
+
+    def skif_object(self, **kwargs):
+        """
+        Returns the internel SasktranIF object
+        """
+        reference_point = kwargs["engine"].model_parameters["referencepoint"]
+
+        geo = sk.Geodetic()
+        geo.from_lat_lon_alt(reference_point[0], reference_point[1], reference_point[2])
+
+        local_angles, angleidx, normalandreference = self._grid.get_local_plane(
+            geo.location
+        )
+
+        user_clim = sk.ClimatologyUserDefined2D(
+            np.rad2deg(local_angles),
+            np.array([0.0, 100000.0]),
+            {
+                "SKCLIMATOLOGY_ALBEDO": np.tile(
+                    self._values[angleidx], (2, 1)
+                ).transpose()
+            },
+            normalandreference[3:],
+            normalandreference[:3],
+        )
+
+        self._brdf = sk.BRDF("PLANE")
+        self._brdf.skif_object().SetProperty("clim", user_clim.skif_object())
+        return self._brdf.skif_object()
+
+    @property
+    def values(self):
+        return self._values
+
+    @values.setter
+    def values(self, values):
+        self._values = values
