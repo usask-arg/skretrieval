@@ -237,6 +237,9 @@ class TwoDimTarget(RetrievalTarget):
                 new_state = np.exp(new_state)
 
             mult_factor = new_state / current_state_resized
+
+            mult_factor[~np.isfinite(mult_factor)] = 1
+
             if self._max_change_factor is not None:
                 mult_factor[
                     mult_factor > self._max_change_factor
