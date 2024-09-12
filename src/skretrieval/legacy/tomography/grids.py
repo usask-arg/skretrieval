@@ -428,12 +428,18 @@ class OrbitalPlaneGrid:
         for idx, (lat, lon) in enumerate(zip(to_lat, to_lon)):
             # Calculate the distance from the this point to all old locations
             # assuming a spherical earth
-            distance = np.arccos(
-                np.cos(np.deg2rad(lat))
-                * np.cos(np.deg2rad(from_lat))
-                * np.cos(np.deg2rad(from_lon - lon))
-                + np.sin(np.deg2rad(from_lat)) * np.sin(np.deg2rad(lat))
+            cos_distance = np.cos(np.deg2rad(lat)) * np.cos(
+                np.deg2rad(from_lat)
+            ) * np.cos(np.deg2rad(from_lon - lon)) + np.sin(
+                np.deg2rad(from_lat)
+            ) * np.sin(
+                np.deg2rad(lat)
             )
+
+            # Correct for numerics
+            cos_distance[cos_distance > 1] = 1
+            cos_distance[cos_distance < -1] = -1
+            distance = np.arccos(cos_distance)
 
             # Check if we are outside the grid
             if np.all(np.diff(distance) > 0):
