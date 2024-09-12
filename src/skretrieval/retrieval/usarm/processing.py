@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import copy
+from typing import ClassVar
 
 import numpy as np
 import sasktran2 as sk2
@@ -11,27 +12,59 @@ from skretrieval.retrieval.scipy import SciPyMinimizer, SciPyMinimizerGrad
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
 
 from .ancillary import US76Ancillary
-from .forwardmodel import USARMForwardModel
+from .forwardmodel import ForwardModelHandler, IdealViewingSpectrograph
 from .measvec import MeasurementVector, select
 from .observation import Observation
-from .spline import MultiplicativeSpline
 from .statevector import USARMStateVector
 from .target import USARMTarget
 
 
 class USARMRetrieval:
+    _optical_property_fns: ClassVar[dict[str, callable]] = {}
+    _prior_fns: ClassVar[dict[str, callable]] = {}
+    _state_fns: ClassVar[dict[str, dict[str, callable]]] = {
+        "absorbers": {},
+        "aerosols": {},
+        "splines": {},
+        "surface": {},
+        "other": {},
+    }
+
+    @classmethod
+    def register_optical_property(cls, species_name: str):
+        def decorator(optical_property_fn: callable):
+            cls._optical_property_fns[species_name] = optical_property_fn
+            return optical_property_fn
+
+        return decorator
+
+    @classmethod
+    def register_prior(cls, species_name: str):
+        def decorator(prior_fn: callable):
+            cls._prior_fns[species_name] = prior_fn
+            return prior_fn
+
+        return decorator
+
+    @classmethod
+    def register_state(cls, category: str, species_name: str):
+        def decorator(state_fn: callable):
+            cls._state_fns[category][species_name] = state_fn
+            return state_fn
+
+        return decorator
+
     def __init__(
         self,
         observation: Observation,
         measvec: dict[MeasurementVector] | None = None,
+        forward_model_cfg: dict | None = None,
         minimizer="rodgers",
         l1_kwargs: dict | None = None,
         model_kwargs: dict | None = None,
         minimizer_kwargs: dict | None = None,
         target_kwargs: dict | None = None,
         state_kwargs: dict | None = None,
-        forward_model_kwargs: dict | None = None,
-        forward_model_class: type = USARMForwardModel,
         **kwargs,
     ) -> None:
         """
@@ -59,28 +92,40 @@ class USARMRetrieval:
         forward_model_class : type, optional
             Class to use when constructing the forward model, by default USARMForwardModel
         """
+        if minimizer.lower() == "rodgers":
+            # Override the default Rodgers options
+            self._minimizer_kwargs = {
+                "lm_damping_method": "fletcher",
+                "lm_damping": 0.1,
+                "max_iter": 30,
+                "lm_change_factor": 2,
+                "iterative_update_lm": True,
+                "retreat_lm": False,
+                "apply_cholesky_scaling": True,
+                "convergence_factor": 1e-2,
+                "convergence_check_method": "dcost",
+            }
+            if minimizer_kwargs is not None:
+                self._minimizer_kwargs.update(minimizer_kwargs)
+
         if state_kwargs is None:
             state_kwargs = {}
         if target_kwargs is None:
             target_kwargs = {}
-        if minimizer_kwargs is None:
-            minimizer_kwargs = {}
         if model_kwargs is None:
             model_kwargs = {}
         if l1_kwargs is None:
             l1_kwargs = {}
-        if forward_model_kwargs is None:
-            forward_model_kwargs = {}
+        if forward_model_cfg is None:
+            forward_model_cfg = {"*": {"class": IdealViewingSpectrograph}}
         self._options = kwargs
         self._l1_kwargs = l1_kwargs
         self._minimizer = minimizer
-        self._minimizer_kwargs = minimizer_kwargs
         self._target_kwargs = target_kwargs
         self._state_kwargs = state_kwargs
         self._model_kwargs = model_kwargs
-        self._forward_model_class = forward_model_class
-        self._forward_model_kwargs = forward_model_kwargs
         self._measurement_vector = measvec
+        self._forward_model_cfg = forward_model_cfg
 
         self._measurement_vector = self._construct_measurement_vector()
 
@@ -105,12 +150,12 @@ class USARMRetrieval:
     def _construct_forward_model(self):
         engine_config = sk2.Config()
 
-        return self._forward_model_class(
+        return ForwardModelHandler(
+            self._forward_model_cfg,
             self._observation,
             self._state_vector,
             self._anc,
             engine_config,
-            **self._forward_model_kwargs,
         )
 
     def _const_from_mipas(
@@ -148,138 +193,72 @@ class USARMRetrieval:
         )
 
     def _optical_property(self, species_name: str):
-        if species_name.lower() == "o3":
-            return sk2.optical.O3DBM()
-        if species_name.lower() == "no2":
-            return sk2.optical.NO2Vandaele()
-        if species_name.lower() == "bro":
-            return sk2.optical.HITRANUV("BrO")
-        if species_name.lower() == "so2":
-            return sk2.optical.HITRANUV("SO2")
-        if species_name.lower() == "o2":
-            return sk2.optical.HITRANTabulated("O2")
-        if species_name.lower() == "h2o":
-            return sk2.optical.HITRANTabulated("H2O")
-        return None
+        return self._optical_property_fns[species_name]()
+
+    @staticmethod
+    def _default_state_absorber(self, name: str, native_alt_grid: np.array, cfg: dict):
+        const = self._const_from_mipas(
+            native_alt_grid,
+            name,
+            self._optical_property(name),
+            tikh=cfg["tikh_factor"],
+            prior_infl=cfg["prior_influence"],
+            log_space=cfg["log_space"],
+            min_val=cfg["min_value"],
+            max_val=cfg["max_value"],
+        )
+
+        const.enabled = cfg.get("enabled", True)
+        return const
+
+    @staticmethod
+    def _default_state_surface(
+        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+    ):
+        msg = f"Surface {name} does not have a default implementation"
+        raise ValueError(msg)
+
+    @staticmethod
+    def _default_state_spline(
+        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+    ):
+        msg = f"Spline {name} does not have a default implementation"
+        raise ValueError(msg)
+
+    @staticmethod
+    def _default_state_aerosol(
+        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+    ):
+        msg = f"aerosol {name} does not have a default implementation"
+        raise ValueError(msg)
 
     def _construct_state_vector(self):
         native_alt_grid = self._state_kwargs["altitude_grid"]
 
         absorbers = {}
 
-        for name, options in self._state_kwargs["absorbers"].items():
-            if options["prior"]["type"] == "mipas":
-                absorbers[name] = self._const_from_mipas(
-                    native_alt_grid,
-                    name,
-                    self._optical_property(name),
-                    tikh=options["tikh_factor"],
-                    prior_infl=options["prior_influence"],
-                    log_space=options["log_space"],
-                    min_val=options["min_value"],
-                    max_val=options["max_value"],
-                )
-
-            absorbers[name].enabled = options.get("enabled", True)
+        for name, options in self._state_kwargs.get("absorbers", {}).items():
+            absorbers[name] = self._state_fns["absorbers"].get(
+                name, self._default_state_absorber
+            )(self, name, native_alt_grid, options)
 
         surface = {}
-        if "albedo" in self._state_kwargs:
-            options = self._state_kwargs["albedo"]
-
-            albedo_wavel = options["wavelengths"]
-            albedo_start = np.ones(len(albedo_wavel)) * options["initial_value"]
-
-            albedo_const = sk2.constituent.LambertianSurface(
-                albedo_start, albedo_wavel, options.get("out_of_bounds_mode", "extend")
-            )
-            surface["albedo"] = StateVectorElementConstituent(
-                albedo_const,
-                "albedo",
-                ["albedo"],
-                min_value={"albedo": 0},
-                max_value={"albedo": 1},
-                prior={
-                    "albedo": options["tikh_factor"] * prior.VerticalTikhonov(1)
-                    + options["prior_influence"] * prior.ConstantDiagonalPrior()
-                },
-                log_space=False,
-            )
-            surface["albedo"].enabled = options.get("enabled", True)
+        for name, options in self._state_kwargs.get("surface", {}).items():
+            surface[name] = self._state_fns["surface"].get(
+                name, self._default_state_surface
+            )(self, name, native_alt_grid, options)
 
         aerosols = {}
         for name, aerosol in self._state_kwargs.get("aerosols", {}).items():
-            if aerosol["type"] == "extinction_profile":
-                aero_const = sk2.test_util.scenarios.test_aerosol_constituent(
-                    native_alt_grid
-                )
-
-                ext = copy(aero_const.extinction_per_m)
-                ext[ext == 0] = 1e-15
-
-                scale_factor = aerosol.get("scale_factor", 1)
-
-                secondary_kwargs = {
-                    name: np.ones_like(native_alt_grid)
-                    * aerosol["prior"][name]["value"]
-                    for name in aerosol["prior"]
-                    if name != "extinction_per_m"
-                }
-
-                refrac = sk2.mie.refractive.H2SO4()
-                dist = sk2.mie.distribution.LogNormalDistribution().freeze(
-                    mode_width=1.6
-                )
-
-                db = sk2.database.MieDatabase(
-                    dist,
-                    refrac,
-                    np.arange(250.0, 1501.0, 50.0),
-                    median_radius=np.arange(10.0, 901.0, 50.0),
-                )
-
-                aero_const = sk2.constituent.ExtinctionScatterer(
-                    db,
-                    native_alt_grid,
-                    ext * scale_factor,
-                    745,
-                    "extend",
-                    **secondary_kwargs,
-                )
-
-                aerosols[f"aerosol_{name}"] = StateVectorElementConstituent(
-                    aero_const,
-                    f"aerosol_{name}",
-                    aerosol["retrieved_quantities"].keys(),
-                    min_value={
-                        name: val["min_value"]
-                        for name, val in aerosol["retrieved_quantities"].items()
-                    },
-                    max_value={
-                        name: val["max_value"]
-                        for name, val in aerosol["retrieved_quantities"].items()
-                    },
-                    prior={
-                        name: val["tikh_factor"] * prior.VerticalTikhonov(1)
-                        + val["prior_influence"] * prior.ConstantDiagonalPrior()
-                        for name, val in aerosol["retrieved_quantities"].items()
-                    },
-                    log_space=False,
-                )
-
-                aerosols[f"aerosol_{name}"].enabled = aerosol.get("enabled", True)
+            aerosols[f"{name}"] = self._state_fns["aerosols"].get(
+                aerosol["type"], self._default_state_aerosol
+            )(self, name, native_alt_grid, aerosol)
 
         splines = {}
         for name, spline in self._state_kwargs.get("splines", {}).items():
-            splines[f"spline_{name}"] = MultiplicativeSpline(
-                len(self._os.sasktran_geometry().lines_of_sight),
-                spline["min_wavelength"],
-                spline["max_wavelength"],
-                spline["num_knots"],
-                s=spline["smoothing"],
-                order=spline["order"],
-            )
-
-            splines[f"spline_{name}"].enabled = spline.get("enabled", True)
+            splines[name] = self._state_fns["splines"].get(
+                name, self._default_state_spline
+            )(self, name, native_alt_grid, spline)
 
         return USARMStateVector(
             native_alt_grid, **absorbers, **surface, **aerosols, **splines
@@ -296,7 +275,11 @@ class USARMRetrieval:
     def _construct_output(self, rodgers_output: dict):
         return rodgers_output
 
-    def retrieve(self):
+    def retrieve(
+        self,
+        enabled_state_elements: list[str] | None = None,
+        enabled_measurement_vectors: list[str] | None = None,
+    ):
         if self._minimizer == "rodgers":
             minimizer = Rodgers(**self._minimizer_kwargs)
         elif self._minimizer == "scipy":
@@ -304,9 +287,30 @@ class USARMRetrieval:
         elif self._minimizer == "scipy_grad":
             minimizer = SciPyMinimizerGrad()
 
+        if enabled_state_elements is not None:
+            for key, val in self._state_vector.sv.items():
+                if key in enabled_state_elements:
+                    val.enabled = True
+                else:
+                    val.enabled = False
+
+        if enabled_measurement_vectors is not None:
+            for key, val in self._measurement_vector.items():
+                if key in enabled_measurement_vectors:
+                    val.enabled = True
+                else:
+                    val.enabled = False
+
         min_results = minimizer.retrieve(
             self._obs_l1, self._forward_model, self._target
         )
+
+        # Reset the enabled flag
+        for _, val in self._state_vector.sv.items():
+            val.enabled = True
+
+        for _, val in self._measurement_vector.items():
+            val.enabled = True
 
         # Post process
         final_l1 = self._forward_model.calculate_radiance()
@@ -321,3 +325,99 @@ class USARMRetrieval:
         results["state"] = self._state_vector.describe(min_results)
 
         return self._construct_output(results)
+
+
+# Register all the default optical properties
+@USARMRetrieval.register_optical_property("o3")
+def o3_optical_property(*args, **kwargs):
+    return sk2.optical.O3DBM()
+
+
+@USARMRetrieval.register_optical_property("no2")
+def no2_optical_property(*args, **kwargs):
+    return sk2.optical.NO2Vandaele()
+
+
+@USARMRetrieval.register_optical_property("bro")
+def bro_optical_property(*args, **kwargs):
+    return sk2.optical.HITRANUV("BrO")
+
+
+@USARMRetrieval.register_optical_property("so2")
+def so2_optical_property(*args, **kwargs):
+    return sk2.optical.HITRANUV("SO2")
+
+
+# Register the default Lambertian surface state
+@USARMRetrieval.register_state("surface", "lambertian_albedo")
+def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa: ARG001
+    albedo_wavel = cfg["wavelengths"]
+    albedo_start = np.ones(len(albedo_wavel)) * cfg["initial_value"]
+
+    albedo_const = sk2.constituent.LambertianSurface(
+        albedo_start, albedo_wavel, cfg.get("out_of_bounds_mode", "extend")
+    )
+    sv_ele = StateVectorElementConstituent(
+        albedo_const,
+        name,
+        ["albedo"],
+        min_value={"albedo": 0},
+        max_value={"albedo": 1},
+        prior={
+            "albedo": cfg["tikh_factor"] * prior.VerticalTikhonov(1)
+            + cfg["prior_influence"] * prior.ConstantDiagonalPrior()
+        },
+        log_space=False,
+    )
+    sv_ele.enabled = cfg.get("enabled", True)
+
+    return sv_ele
+
+
+@USARMRetrieval.register_state("aerosols", "extinction_profile")
+def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
+    aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
+
+    ext = copy(aero_const.extinction_per_m)
+    ext[ext == 0] = 1e-15
+
+    scale_factor = cfg.get("scale_factor", 1)
+
+    secondary_kwargs = {
+        name: np.ones_like(native_alt_grid) * cfg["prior"][name]["value"]
+        for name in cfg["prior"]
+        if name != "extinction_per_m"
+    }
+
+    db = self._optical_property(name)
+
+    aero_const = sk2.constituent.ExtinctionScatterer(
+        db,
+        native_alt_grid,
+        ext * scale_factor,
+        745,
+        "extend",
+        **secondary_kwargs,
+    )
+
+    sv_ele = StateVectorElementConstituent(
+        aero_const,
+        f"{name}",
+        cfg["retrieved_quantities"].keys(),
+        min_value={
+            name: val["min_value"] for name, val in cfg["retrieved_quantities"].items()
+        },
+        max_value={
+            name: val["max_value"] for name, val in cfg["retrieved_quantities"].items()
+        },
+        prior={
+            name: val["tikh_factor"] * prior.VerticalTikhonov(1)
+            + val["prior_influence"] * prior.ConstantDiagonalPrior()
+            for name, val in cfg["retrieved_quantities"].items()
+        },
+        log_space=False,
+    )
+
+    sv_ele.enabled = cfg.get("enabled", True)
+
+    return sv_ele

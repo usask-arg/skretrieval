@@ -13,7 +13,7 @@ from skretrieval.geodetic import geodetic
 from skretrieval.retrieval import ForwardModel
 
 from .ancillary import Ancillary
-from .observation import Observation
+from .observation import FilteredObservation, Observation
 from .statevector import USARMStateVector
 
 
@@ -267,3 +267,33 @@ class IdealViewingSpectrograph(IdealViewingMixin, SpectrometerMixin, USARMForwar
         USARMForwardModel.__init__(
             self, observation, state_vector, ancillary, engine_config, **kwargs
         )
+
+
+class ForwardModelHandler(ForwardModel):
+    def __init__(
+        self,
+        cfg: dict,
+        observation: Observation,
+        state_vector: USARMStateVector,
+        ancillary: Ancillary,
+        engine_config: sk.Config,
+        **kwargs,
+    ):
+        super().__init__()
+
+        # Construct the internal forward models
+        self._forward_models = {}
+        for key, val in cfg.items():
+            self._forward_models[key] = val["class"](
+                FilteredObservation(observation, key),
+                state_vector,
+                ancillary,
+                engine_config,
+                **val.get("kwargs", {}),
+            )
+
+    def calculate_radiance(self):
+        result = {}
+        for _, v in self._forward_models.items():
+            result.update(v.calculate_radiance())
+        return result

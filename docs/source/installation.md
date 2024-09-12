@@ -13,7 +13,7 @@ Wheels are also made available through `pip`
 
 # Nightly Builds
 
-The latest nightly version of SASKTRAN2 is made available through::
+The latest nightly version of skretrieval is made available through::
 
     conda install -c usask-arg-nightly -c conda-forge skretrieval
 

@@ -3,21 +3,22 @@
 # Users Guide
 
 
-[Defining your Observation](users_guide/observation.md)
-: Information on how to define the observation
+[Example Library](examples/main.md)
+: Collection of examples using `usarm`
 
-[The Forward Model](users_guide/forward_model.md)
-: How to create the forward model which simulates measurements from the observation
+[In-depth Concepts](concepts/main.md)
+: More detailed descriptions of each of the components of `usarm`
 
-[The State Vector](users_guide/state_vector.md)
-: How the atmospheric state and retrieved properties are defined in `usarm`
+[Library Functionality](lib/main.md)
+: Guides on how to use the various library functionality of `skretrieval` such as defining lineshapes
+
 
 ```{toctree}
 :maxdepth: 4
 :hidden:
 
-users_guide/observation.md
-users_guide/forward_model.md
-users_guide/state_vector.md
+examples/main.md
+concepts/main.md
+lib/main.md
 
 ```

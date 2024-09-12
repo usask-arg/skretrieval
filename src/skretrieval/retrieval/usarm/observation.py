@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 from copy import copy
+from fnmatch import fnmatch
 
 import numpy as np
 import sasktran2 as sk
@@ -91,8 +92,79 @@ class Observation:
         return CombinedObservation(self, other)
 
 
+class FilteredObservation(Observation):
+    def __init__(self, obs: Observation, filter: str):
+        """
+        An internal class that allows for filtering of observation data.
+        Only data that matches the filter will be passed through
+        the various methods
+
+        Parameters
+        ----------
+        obs : Observation
+        filter : str
+            A string that can be used with fnmatch to filter the keys
+        """
+        self._obs = obs
+        self._filter = filter
+
+    def sk2_geometry(self, **kwargs) -> dict[sk.ViewingGeometry]:
+        return {
+            k: v
+            for k, v in self._obs.sk2_geometry(**kwargs).items()
+            if fnmatch(k, self._filter)
+        }
+
+    def skretrieval_l1(self, **kwargs) -> dict[RadianceGridded]:
+        return {
+            k: v
+            for k, v in self._obs.skretrieval_l1(**kwargs).items()
+            if fnmatch(k, self._filter)
+        }
+
+    def sample_wavelengths(self) -> dict[np.array]:
+        return {
+            k: v
+            for k, v in self._obs.sample_wavelengths().items()
+            if fnmatch(k, self._filter)
+        }
+
+    def reference_cos_sza(self) -> dict[float]:
+        return {
+            k: v
+            for k, v in self._obs.reference_cos_sza().items()
+            if fnmatch(k, self._filter)
+        }
+
+    def reference_latitude(self) -> dict[float]:
+        return {
+            k: v
+            for k, v in self._obs.reference_latitude().items()
+            if fnmatch(k, self._filter)
+        }
+
+    def reference_longitude(self) -> dict[float]:
+        return {
+            k: v
+            for k, v in self._obs.reference_longitude().items()
+            if fnmatch(k, self._filter)
+        }
+
+    def append_information_to_l1(self, l1: dict[RadianceGridded], **kwargs) -> None:
+        self._obs.append_information_to_l1(l1, **kwargs)
+
+
 class CombinedObservation(Observation):
     def __init__(self, obs1: Observation, obs2: Observation):
+        """
+        An internal class that allows for combining two observations into a single
+        observation.
+
+        Parameters
+        ----------
+        obs1 : Observation
+        obs2 : Observation
+        """
         self._obs1 = obs1
         self._obs2 = obs2
 
@@ -169,6 +241,7 @@ class SimulatedObservation(Observation):
             state_vector.sv[k].update_state(state_vector.sv[k].state() * v)
 
         l1 = forward_model.calculate_radiance()
+        self._append_noise_to_l1(l1)
 
         for _, v in l1.items():
             v.data["radiance_noise"] = v.data["radiance"] * 0.01
@@ -181,6 +254,10 @@ class SimulatedObservation(Observation):
     def sample_wavelengths(self) -> np.array:
         return {self._name: self._sample_wavelengths}
 
+    def _append_noise_to_l1(self, l1: dict[RadianceGridded]) -> None:
+        for _, v in l1.items():
+            v.data["radiance_noise"] = v.data["radiance"] * 0.01
+
 
 class SimulatedNadirObservation(SimulatedObservation):
     def __init__(
@@ -192,6 +269,7 @@ class SimulatedNadirObservation(SimulatedObservation):
         sample_wavelengths: np.array,
         name: str = "measurement",
         state_adjustment_factors=None,
+        noise_fn=None,
     ):
         """
         A simulated nadir observation
@@ -216,6 +294,7 @@ class SimulatedNadirObservation(SimulatedObservation):
         self._cos_viewing_zenith = cos_viewing_zenith
         self._reference_latitude = reference_latitude
         self._reference_longitude = reference_longitude
+        self._noise_fn = noise_fn
 
         geo = sk.ViewingGeometry()
         geo.add_ray(sk.GroundViewingSolar(cos_sza, 0, cos_viewing_zenith, 200000))
@@ -236,6 +315,13 @@ class SimulatedNadirObservation(SimulatedObservation):
     def reference_longitude(self) -> float:
         return {self._name: self._reference_longitude}
 
+    def _append_noise_to_l1(self, l1: dict[RadianceGridded]) -> None:
+        if self._noise_fn is not None:
+            for _, v in l1.items():
+                v.data["radiance_noise"] = self._noise_fn(v.data)
+        else:
+            super()._append_noise_to_l1(l1)
+
 
 class SimulatedLimbObservation(SimulatedObservation):
     def __init__(
@@ -249,6 +335,7 @@ class SimulatedLimbObservation(SimulatedObservation):
         sample_wavelengths: np.array,
         name: str = "measurement",
         state_adjustment_factors=None,
+        noise_fn=None,
     ):
         """
         A simulated limb observation
@@ -276,6 +363,7 @@ class SimulatedLimbObservation(SimulatedObservation):
         self._reference_latitude = reference_latitude
         self._reference_longitude = reference_longitude
         self._tan_alts = tangent_altitudes
+        self._noise_fn = noise_fn
 
         geo = sk.ViewingGeometry()
         for tan_alt in tangent_altitudes:
@@ -306,3 +394,10 @@ class SimulatedLimbObservation(SimulatedObservation):
             l1[self._name].data.coords["tangent_altitude"] = (["los"], self._tan_alts)
 
             l1[self._name].data = l1[self._name].data.set_xindex("tangent_altitude")
+
+    def _append_noise_to_l1(self, l1: dict[RadianceGridded]) -> None:
+        if self._noise_fn is not None:
+            for _, v in l1.items():
+                v.data["radiance_noise"] = self._noise_fn(v.data)
+        else:
+            super()._append_noise_to_l1(l1)

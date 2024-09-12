@@ -46,7 +46,7 @@ The quick start guide will help you set up your first retrieval simulation
 :::
 
 :::{grid-item-card} {octicon}`tools;1.5em;sd-mr-1` User's Guide
-:link: _weighting_functions
+:link: _users_guide
 :link-type: ref
 
 The user's guide demonstrates `skretrieval`'s features through example

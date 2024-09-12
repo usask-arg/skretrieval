@@ -7,5 +7,6 @@
 
 ## State Elements
 ```{eval-rst}
-
+.. autoclass:: skretrieval.retrieval.statevector.StateVectorElement
+.. autoclass:: skretrieval.retrieval.statevector.constituent.StateVectorElementConstituent
 ```

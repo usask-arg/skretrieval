@@ -38,6 +38,7 @@ class MeasurementVector:
         """
         self._fn = fn
         self._filter = apply_to_filter
+        self._enabled = True
 
     @property
     def fn(self):
@@ -46,6 +47,14 @@ class MeasurementVector:
     @property
     def filter(self):
         return self._filter
+
+    @property
+    def enabled(self):
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool):
+        self._enabled = value
 
     def apply(self, l1_data: dict[RadianceGridded]) -> Measurement:
         """
@@ -59,12 +68,32 @@ class MeasurementVector:
         -------
         Measurement
         """
+        if not self._enabled:
+            return None
         apply_vals = {
             k: d for k, d in l1_data.items() if fnmatch.fnmatch(k, self._filter)
         }
         if len(apply_vals) > 0:
             return self._fn(apply_vals, filter=self._filter)
         return None
+
+    def required_sample_wavelengths(
+        self, obs_samples: dict[np.array]
+    ) -> dict[np.array]:
+        """
+        Determines which sample wavelengths are required for this measurement vector
+
+        Default is to just return back all of the observation wavelengths
+
+        Parameters
+        ----------
+        obs_samples : dict[np.array]
+
+        Returns
+        -------
+        dict[np.array]
+        """
+        return obs_samples
 
 
 def pre_process(l1: dict[RadianceGridded]) -> dict[RadianceGridded]:

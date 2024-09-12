@@ -35,28 +35,21 @@ Then we can set up the main retrieval class
 
 ```{code-cell}
 ret = usarm.processing.USARMRetrieval(  observation,
-                                        forward_model_class=usarm.forwardmodel.IdealViewingSpectrograph,
                                         state_kwargs={
                                             "altitude_grid": np.arange(0, 70000, 1000),
                                             "absorbers": {
                                             "o3": {
-                                                "prior_influence": 5e0,
-                                                "tikh_factor": 1e-2,
+                                                "prior_influence": 1e-1,
+                                                "tikh_factor": 1e-1,
                                                 "log_space": False,
                                                 "min_value": 0,
                                                 "max_value": 1,
-                                                "prior": {"type": "mipas"}
                                             },
                                         },
                                         }
                         )
 ```
-
-Here we have specified two things, the first is `forward_model_class=IdealViewingSpectrograph`, this is the class
-that is responsible for simulating our observation.  `usarm` provides default forward model objects, as well as some tools
-to help in constructing your own.  It is also possible to completely write your own forward model if the application requires it.
-
-The second thing specified is `state_kwargs`.  This defines our atmospheric state {math}`\mathbf{x}`, as well as any priors we attach to it.
+The main thing we had to specify is `state_kwargs`.  This defines our atmospheric state {math}`\mathbf{x}`, as well as any priors we attach to it.
 In this case, the quantities that we are retrieving is just ozone, and note that we have given it the name "o3" which matches what we had
 provided in `state_adjustment_factors` earlier.  This means that our simulation is going to use 1.5x the amount of ozone as our
 initial guess.
@@ -72,3 +65,12 @@ And we can look at some of the results
 ```{code-cell}
 usarm.plotting.plot_state(results, "o3_vmr")
 ```
+
+`usarm` provides default settings for most aspects of the retrieval including
+
+- Setting up how the observations are modelled (the forward model)
+- Choosing and transforming which measurements to include in the retrieval (the measurement vector)
+- How ancillary information is included in the atmosphere
+- How the atmospheric state is constructed from the configuration parameters
+
+All of these things can be overrided by the user, and more details on how this is done is found in the user's guide.
