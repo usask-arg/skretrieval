@@ -14,6 +14,8 @@ dependencies:
   - jdcal
   - sgp4
   - jplephem
+  - matplotlib
   - pip:
     - sphinx_rtd_theme
     - sasktran
+    - myst_nb

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
-
 
 def plot_state(results: dict, state: str, **kwargs):
+    import matplotlib.pyplot as plt
+
     r = results["state"]
     plt.subplot(1, 2, 1)
     plt.plot(r[f"{state}"], r["altitude"])
