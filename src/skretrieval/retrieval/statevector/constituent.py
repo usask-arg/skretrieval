@@ -5,7 +5,7 @@ import sasktran2 as sk2
 import xarray as xr
 from scipy.linalg import block_diag
 
-from skretrieval.retrieval.usarm.prior import BasePrior
+from skretrieval.retrieval.prior import BasePrior
 
 from . import StateVectorElement
 

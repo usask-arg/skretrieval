@@ -3,13 +3,13 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.usarm.forwardmodel.USARMForwardModel
+.. autoclass:: skretrieval.retrieval.ForwardModel
 
 ```
 
 ## Available Forward Models
 ```{eval-rst}
-.. autoclass:: skretrieval.usarm.forwardmodel.IdealViewingSpectrograph
+.. autoclass:: skretrieval.forwardmodel.IdealViewingSpectrograph
 
 ```
 

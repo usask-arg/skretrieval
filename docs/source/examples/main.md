@@ -2,7 +2,7 @@
 # Examples
 
 [Nadir Backscatter Ozone Retrieval](nadir_ozone)
-: Setting up a Nadir Backscatter Ozone Retrieval using simulated measurements and `usarm`
+: Setting up a Nadir Backscatter Ozone Retrieval using simulated measurements
 
 [Limb Scatter Ozone Retrieval](limb_ozone)
 : A limb scatter ozone retrieval

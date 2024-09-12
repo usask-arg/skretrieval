@@ -2,20 +2,20 @@
 (_concepts)=
 # Detailed Concepts
 
-[Defining your Observation](users_guide/observation.md)
+[Defining your Observation](observation)
 : Information on how to define the observation
 
-[The Forward Model](users_guide/forward_model.md)
+[The Forward Model](forward_model)
 : How to create the forward model which simulates measurements from the observation
 
-[The State Vector](users_guide/state_vector.md)
-: How the atmospheric state and retrieved properties are defined in `usarm`
+[The State Vector](state_vector)
+: How the atmospheric state and retrieved properties are defined
 
-[Measurement Vectors](users_guide/measurement_vector.md)
-: Information on measurement vectors in `usarm`
+[Measurement Vectors](measurement_vector)
+: Information on measurement vectors
 
-[Main Processing Class](users_guide/processing.md)
-: How the main processing orchestrator works in `usarm`
+[Main Processing Class](processing)
+: How the main processing orchestrator works
 
 ```{toctree}
 :maxdepth: 4

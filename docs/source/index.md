@@ -15,9 +15,8 @@ The USask Atmospheric Retrieval Framework
 ::::
 
 `skretrieval` is an atmospheric retrieval (inverse problem) framework developed at the University of Saskatchewan. It provides
-general utility methods for working with atmospheric retrieval problems, as well as a module called `usarm`, which is short for
-"USask Atmospheric Retrieval Method".  `usarm` provides generic, highly extendable, methods to retrieve atmospheric parameters from remote sensing
-measurements.
+general utility methods for working with atmospheric retrieval problems.
+`skretrieval` also provides generic, highly extendable, methods to retrieve atmospheric parameters from remote sensing measurements.
 
 `skretrieval` is still in active development, and things are subject to change quickly, however it is already usable for many applications.
 After [Installing](_installation) the package, we recommend starting with the [Quick Start Guide](_quickstart) to get a feel for the core concepts of the interface.

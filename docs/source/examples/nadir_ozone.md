@@ -9,10 +9,10 @@ Here we create a Nadir viewing backscatter measurement in the UV and retrieve th
 We also include a Lambertian surface in the state vector.
 
 ```{code-cell}
-from skretrieval import usarm
+import skretrieval as skr
 import numpy as np
 
-observation = usarm.observation.SimulatedNadirObservation(
+observation = skr.observation.SimulatedNadirObservation(
     cos_sza=0.6,
     cos_viewing_zenith=1.0,
     reference_latitude=20,
@@ -22,7 +22,7 @@ observation = usarm.observation.SimulatedNadirObservation(
 )
 
 
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     observation,
     state_kwargs={
         "altitude_grid": np.arange(0, 70000, 1000),
@@ -50,5 +50,5 @@ ret = usarm.processing.USARMRetrieval(
 
 results = ret.retrieve()
 
-usarm.plotting.plot_state(results, "o3_vmr", show=True)
+skr.plotting.plot_state(results, "o3_vmr", show=True)
 ```

@@ -3,6 +3,6 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.usarm.measvec.MeasurementVector
+.. autoclass:: skretrieval.measvec.MeasurementVector
 
 ```

@@ -6,15 +6,15 @@ This could be something like a microwindow, high-altitude normalized radiances, 
 We call the result of this transformation the measurement vector, and sometimes even refer to the process of going from L1 data
 to the quantities used in the retrieval the measurement vector.
 
-Measurement vectors are passed into the `USARMRetrieval` object as a dictionary of {py:class}`skretrieval.usarm.measvec.MeasurementVector`
+Measurement vectors are passed into the `Retrieval` object as a dictionary of {py:class}`skretrieval.measvec.MeasurementVector`
 objects.
 
 ## Pre-defined Measurement Vectors
-The simplest way to define the measurement vector is to use some of `usarm`'s pre-built measurement vectors.
+The simplest way to define the measurement vector is to use some of `skretrieval`'s pre-built measurement vectors.
 
 ```{eval-rst}
 .. autosummary::
-    skretrieval.usarm.measvec.Triplet
+    skretrieval.measvec.Triplet
 ```
 
 ## Measurement Vector Filtering
@@ -30,5 +30,5 @@ In some cases you may want to define your own measurement vector, in these cases
 user created function that transform the L1 data, however this can be more complicated than it seems.
 In addition to transforming the radiances, the transformation must also be applied to the Jacobian matrix, performing standard derivative propagation rules.
 The measurement error covariance matrix must also be propagated using Gaussian error propagation rules.
-To make this simpler, `usarm` provides convenience methods to handle these transformations for you.
+To make this simpler, `skretrieval` provides convenience methods to handle these transformations for you.
 They can be composed to create more complicated measurement vector transformations.

@@ -15,8 +15,8 @@ if you are already familiar with it.
 ```{code-cell}
 :tags: [hide-input]
 import numpy as np
+import skretrieval as skr
 
-from skretrieval import usarm
 from skretrieval.core.lineshape import Gaussian
 
 # Measurement tangent altitudes
@@ -58,7 +58,7 @@ wavel = np.unique(np.concatenate([triplets[t]["wavelength"] for t in triplets]))
 state_adjustment_factors = {"o3": 1.5}
 
 # Set up a simulated observation with our tangent altitudes, wavelengths, and use 1.5x the initial guess for ozone
-obs_limb = usarm.observation.SimulatedLimbObservation(
+obs_limb = skr.observation.SimulatedLimbObservation(
     cos_sza=0.2,
     name="limb",
     relative_azimuth=0,
@@ -70,7 +70,7 @@ obs_limb = usarm.observation.SimulatedLimbObservation(
     state_adjustment_factors=state_adjustment_factors,  # Simulate with 1.5x the ozone of the prior
 )
 
-obs_nadir = usarm.observation.SimulatedNadirObservation(
+obs_nadir = skr.observation.SimulatedNadirObservation(
     cos_sza=0.2,
     name="nadir",
     cos_viewing_zenith=1.0,
@@ -107,7 +107,7 @@ state_kwargs = {
 # Construct our measurement vectors
 meas_vec_limb = {}
 for name, t in triplets.items():
-    meas_vec_limb[name] = usarm.measvec.Triplet(
+    meas_vec_limb[name] = skr.measvec.Triplet(
         t["wavelength"],
         t["weights"],
         t["altitude_range"],
@@ -116,8 +116,8 @@ for name, t in triplets.items():
     )
 
 meas_vec_nadir = {}
-meas_vec_nadir["nadir"] = usarm.measvec.MeasurementVector(
-    lambda l1, **kwargs: usarm.measvec.select(l1, **kwargs), apply_to_filter="nadir"
+meas_vec_nadir["nadir"] = skr.measvec.MeasurementVector(
+    lambda l1, **kwargs: skr.measvec.select(l1, **kwargs), apply_to_filter="nadir"
 )
 ```
 Above we have set up the
@@ -134,7 +134,7 @@ triplets for the nadir retrieval.
 First, let's repeat what we have done before and just run the nadir retrieval.
 
 ```{code-cell}
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     obs_nadir,
     measvec=meas_vec_nadir,
     minimizer="rodgers",
@@ -143,12 +143,12 @@ ret = usarm.processing.USARMRetrieval(
 )
 
 results = ret.retrieve()
-usarm.plotting.plot_state(results, "o3_vmr", show=True)
+skr.plotting.plot_state(results, "o3_vmr", show=True)
 ```
 
 And then let's repeat the limb scatter retrieval,
 ```{code-cell}
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     obs_limb,
     measvec=meas_vec_limb,
     minimizer="rodgers",
@@ -157,7 +157,7 @@ ret = usarm.processing.USARMRetrieval(
 )
 
 results = ret.retrieve()
-usarm.plotting.plot_state(results, "o3_vmr", show=True)
+skr.plotting.plot_state(results, "o3_vmr", show=True)
 ```
 
 Comparing both retrieval averaging kernels we see that the nadir retrieval has very wide averaging kernels,
@@ -168,7 +168,7 @@ We can now perform a joint retrieval.  Combining the measurements is as simple a
 together, and merging the measurement vectors.
 
 ```{code-cell}
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     obs_limb + obs_nadir,
     measvec={**meas_vec_limb, **meas_vec_nadir},
     minimizer="rodgers",
@@ -177,7 +177,7 @@ ret = usarm.processing.USARMRetrieval(
 )
 
 results = ret.retrieve()
-usarm.plotting.plot_state(results, "o3_vmr", show=True)
+skr.plotting.plot_state(results, "o3_vmr", show=True)
 ```
 
 We can see that the joint averaging kernel retains the high vertical resolution in the stratosphere

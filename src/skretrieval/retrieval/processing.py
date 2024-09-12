@@ -6,7 +6,7 @@ from typing import ClassVar
 import numpy as np
 import sasktran2 as sk2
 
-import skretrieval.retrieval.usarm.prior as prior
+import skretrieval.retrieval.prior as prior
 from skretrieval.retrieval.rodgers import Rodgers
 from skretrieval.retrieval.scipy import SciPyMinimizer, SciPyMinimizerGrad
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
@@ -15,11 +15,11 @@ from .ancillary import US76Ancillary
 from .forwardmodel import ForwardModelHandler, IdealViewingSpectrograph
 from .measvec import MeasurementVector, select
 from .observation import Observation
-from .statevector import USARMStateVector
-from .target import USARMTarget
+from .statevector.altitude import AltitudeNativeStateVector
+from .target.mvtarget import MeasVecTarget
 
 
-class USARMRetrieval:
+class Retrieval:
     _optical_property_fns: ClassVar[dict[str, callable]] = {}
     _prior_fns: ClassVar[dict[str, callable]] = {}
     _state_fns: ClassVar[dict[str, dict[str, callable]]] = {
@@ -68,7 +68,7 @@ class USARMRetrieval:
         **kwargs,
     ) -> None:
         """
-        The main processing script that handles the usarm retrieval
+        The main processing script that handles the retrieval
 
         Parameters
         ----------
@@ -87,10 +87,8 @@ class USARMRetrieval:
             Additional arguments passed to the retrieval target, by default None
         state_kwargs : dict | None, optional
             Arguments to construct the state vector, by default None
-        forward_model_kwargs : dict | None, optional
+        forward_model_cfg : dict | None, optional
             Additional arguments passed to the forward model, by default None
-        forward_model_class : type, optional
-            Class to use when constructing the forward model, by default USARMForwardModel
         """
         if minimizer.lower() == "rodgers":
             # Override the default Rodgers options
@@ -260,7 +258,7 @@ class USARMRetrieval:
                 name, self._default_state_spline
             )(self, name, native_alt_grid, spline)
 
-        return USARMStateVector(
+        return AltitudeNativeStateVector(
             native_alt_grid, **absorbers, **surface, **aerosols, **splines
         )
 
@@ -268,7 +266,7 @@ class USARMRetrieval:
         return US76Ancillary()
 
     def _construct_target(self):
-        return USARMTarget(
+        return MeasVecTarget(
             self._state_vector, self._measurement_vector, **self._target_kwargs
         )
 
@@ -328,28 +326,28 @@ class USARMRetrieval:
 
 
 # Register all the default optical properties
-@USARMRetrieval.register_optical_property("o3")
+@Retrieval.register_optical_property("o3")
 def o3_optical_property(*args, **kwargs):
     return sk2.optical.O3DBM()
 
 
-@USARMRetrieval.register_optical_property("no2")
+@Retrieval.register_optical_property("no2")
 def no2_optical_property(*args, **kwargs):
     return sk2.optical.NO2Vandaele()
 
 
-@USARMRetrieval.register_optical_property("bro")
+@Retrieval.register_optical_property("bro")
 def bro_optical_property(*args, **kwargs):
     return sk2.optical.HITRANUV("BrO")
 
 
-@USARMRetrieval.register_optical_property("so2")
+@Retrieval.register_optical_property("so2")
 def so2_optical_property(*args, **kwargs):
     return sk2.optical.HITRANUV("SO2")
 
 
 # Register the default Lambertian surface state
-@USARMRetrieval.register_state("surface", "lambertian_albedo")
+@Retrieval.register_state("surface", "lambertian_albedo")
 def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa: ARG001
     albedo_wavel = cfg["wavelengths"]
     albedo_start = np.ones(len(albedo_wavel)) * cfg["initial_value"]
@@ -374,7 +372,7 @@ def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa:
     return sv_ele
 
 
-@USARMRetrieval.register_state("aerosols", "extinction_profile")
+@Retrieval.register_state("aerosols", "extinction_profile")
 def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
     aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
 

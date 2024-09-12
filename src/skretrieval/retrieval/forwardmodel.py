@@ -14,27 +14,27 @@ from skretrieval.retrieval import ForwardModel
 
 from .ancillary import Ancillary
 from .observation import FilteredObservation, Observation
-from .statevector import USARMStateVector
+from .statevector.altitude import AltitudeNativeStateVector
 
 
-class USARMForwardModel(ForwardModel):
+class StandardForwardModel(ForwardModel):
     def __init__(
         self,
         observation: Observation,
-        state_vector: USARMStateVector,
+        state_vector: AltitudeNativeStateVector,
         ancillary: Ancillary,
         engine_config: sk.Config,
         **kwargs,
     ) -> None:
         """
-        A forward model for the USARM retrieval.  This is a base class that should be inherited from.
+        A forward model for the Retrieval class.  This is a base class that should be inherited from.
 
 
         Parameters
         ----------
         observation : Observation
             The observation
-        state_vector : USARMStateVector
+        state_vector : AltitudeNativeStateVector
             The State Vector
         ancillary : Ancillary
             The Ancillary Object
@@ -194,7 +194,7 @@ class SpectrometerMixin:
 
 class IdealViewingMixin:
     def __init__(
-        self, observation: Observation, state_vector: USARMStateVector
+        self, observation: Observation, state_vector: AltitudeNativeStateVector
     ) -> None:
         """
         Mixin for adding an ideal viewing geometry to the forward model. This means
@@ -204,7 +204,7 @@ class IdealViewingMixin:
         Parameters
         ----------
         observation : Observation
-        state_vector : USARMStateVector
+        state_vector : AltitudeNativeStateVector
         """
         self._state_vector = state_vector
         self._obs = observation
@@ -241,22 +241,24 @@ class IdealViewingMixin:
         return geometry
 
 
-class IdealViewingSpectrograph(IdealViewingMixin, SpectrometerMixin, USARMForwardModel):
+class IdealViewingSpectrograph(
+    IdealViewingMixin, SpectrometerMixin, StandardForwardModel
+):
     def __init__(
         self,
         observation: Observation,
-        state_vector: USARMStateVector,
+        state_vector: AltitudeNativeStateVector,
         ancillary: Ancillary,
         engine_config: sk.Config,
         **kwargs,
     ) -> None:
         """
-        A forward model for the USARM retrieval that uses an ideal viewing geometry and a spectrometer
+        A forward model for the retrieval that uses an ideal viewing geometry and a spectrometer
 
         Parameters
         ----------
         observation : Observation
-        state_vector : USARMStateVector
+        state_vector : AltitudeNativeStateVector
         ancillary : Ancillary
         engine_config : sk.Config
         """
@@ -264,7 +266,7 @@ class IdealViewingSpectrograph(IdealViewingMixin, SpectrometerMixin, USARMForwar
         SpectrometerMixin.__init__(
             self, kwargs.get("lineshape_fn", lambda _: DeltaFunction())
         )
-        USARMForwardModel.__init__(
+        StandardForwardModel.__init__(
             self, observation, state_vector, ancillary, engine_config, **kwargs
         )
 
@@ -274,7 +276,7 @@ class ForwardModelHandler(ForwardModel):
         self,
         cfg: dict,
         observation: Observation,
-        state_vector: USARMStateVector,
+        state_vector: AltitudeNativeStateVector,
         ancillary: Ancillary,
         engine_config: sk.Config,
         **kwargs,

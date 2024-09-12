@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 from skretrieval.core.radianceformat import RadianceGridded
-from skretrieval.retrieval.statevector import StateVector
-from skretrieval.retrieval.target import GenericTarget
-from skretrieval.retrieval.usarm.measvec import (
+from skretrieval.retrieval.measvec import (
     MeasurementVector,
     concat,
     post_process,
     pre_process,
 )
+from skretrieval.retrieval.statevector import StateVector
+from skretrieval.retrieval.target import GenericTarget
 
 
-class USARMTarget(GenericTarget):
+class MeasVecTarget(GenericTarget):
     def __init__(
         self,
         state_vector: StateVector,
@@ -19,7 +19,7 @@ class USARMTarget(GenericTarget):
         rescale_state_space: bool = False,
     ):
         """
-        Target for the usarm retrieval
+        A target where the measurement vector is calculated through MeasurementVector objects
 
         Parameters
         ----------

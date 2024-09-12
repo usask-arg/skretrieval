@@ -9,21 +9,21 @@ state parameters {math}`\mathbf{x}`, what is our best estimate of {math}`\mathbf
 We assume that we have a "Forward Model" that is capable of taking {math}`\mathbf{x}` as input, and producing simulated observations.
 The atmospheric retrieval problem is the inverse of this, going from measurements to atmospheric state.
 
-As a first introduction to `usarm`, we are going to set up a simulated retrieval where a Nadir viewing instrument is measuring
+As a first introduction to `skretrieval`, we are going to set up a simulated retrieval where a Nadir viewing instrument is measuring
 backscattered radiation across the UV-VIS spectrum and our goal is to estimate the observed ozone concentration.
-We start by creating a {py:class}`skretrieval.usarm.observation.Observation` object which defines the measurements,
+We start by creating a {py:class}`skretrieval.observation.Observation` object which defines the measurements,
 
 
 ```{code-cell}
-from skretrieval import usarm
+import skretrieval as skr
 import numpy as np
 
-observation = usarm.observation.SimulatedNadirObservation(cos_sza=0.6,
-                                                          cos_viewing_zenith=1.0,
-                                                          reference_latitude=20,
-                                                          reference_longitude=0,
-                                                          sample_wavelengths=np.arange(280, 800, 0.5),
-                                                          state_adjustment_factors={"o3": 1.5})
+observation = skr.observation.SimulatedNadirObservation(cos_sza=0.6,
+                                                        cos_viewing_zenith=1.0,
+                                                        reference_latitude=20,
+                                                        reference_longitude=0,
+                                                        sample_wavelengths=np.arange(280, 800, 0.5),
+                                                        state_adjustment_factors={"o3": 1.5})
 ```
 
 In this case we have created a special kind of observation, a "Simulated Observation", which means that we are going to use
@@ -34,7 +34,7 @@ We also specify `state_adjustment_factors` which are some options to change the 
 Then we can set up the main retrieval class
 
 ```{code-cell}
-ret = usarm.processing.USARMRetrieval(  observation,
+ret = skr.Retrieval(  observation,
                                         state_kwargs={
                                             "altitude_grid": np.arange(0, 70000, 1000),
                                             "absorbers": {
@@ -63,10 +63,10 @@ results = ret.retrieve()
 And we can look at some of the results
 
 ```{code-cell}
-usarm.plotting.plot_state(results, "o3_vmr")
+skr.plotting.plot_state(results, "o3_vmr")
 ```
 
-`usarm` provides default settings for most aspects of the retrieval including
+`skretrieval` provides default settings for most aspects of the retrieval including
 
 - Setting up how the observations are modelled (the forward model)
 - Choosing and transforming which measurements to include in the retrieval (the measurement vector)

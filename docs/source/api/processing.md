@@ -3,6 +3,6 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.usarm.processing.USARMRetrieval
+.. autoclass:: skretrieval.Retrieval
 
 ```

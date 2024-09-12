@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import sasktran2 as sk
 
-import skretrieval.retrieval.usarm.measvec as mv
+import skretrieval.retrieval.measvec as mv
 from skretrieval.core.lineshape import DeltaFunction
 from skretrieval.core.sasktranformat import SASKTRANRadiance
 from skretrieval.core.sensor.spectrograph import SpectrographOnlySpectral

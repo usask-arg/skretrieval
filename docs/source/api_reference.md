@@ -2,22 +2,22 @@
 # API Reference
 
 [Observation](api/observation)
-: Details related to defining the observation for `usarm`
+: Details related to defining the observation
 
 [Forward Model](api/forward_model)
-: Details related to defining the forward model for `usarm`
+: Details related to defining the forward model
 
 [State Vector](api/state_vector)
-: Details related to defining the state_vector for `usarm`
+: Details related to defining the state_vector
 
 [Measurement Vector](api/measurement_vector)
-: Details related to the measurement vectors in `usarm`
+: Details related to the measurement vectors
 
 [Prior](api/prior)
-: How to define Priors in `usarm`
+: How to define Priors
 
 [Processing](api/processing)
-: How the main processing script in `usarm` works
+: How the main processing script works
 
 ```{toctree}
 :maxdepth: 2

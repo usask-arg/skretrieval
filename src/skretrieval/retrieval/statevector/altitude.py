@@ -8,10 +8,11 @@ from skretrieval.retrieval.statevector import StateVector
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
 
 
-class USARMStateVector(StateVector):
+class AltitudeNativeStateVector(StateVector):
     def __init__(self, altitude_grid: np.array, **kwargs):
         """
-        Class representing the state vector for the USARM retrieval
+        Class representing the state vector where state vector elements are natively
+        specified on altitude levels
 
         Parameters
         ----------

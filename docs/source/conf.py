@@ -118,10 +118,6 @@ html_theme_options = {
     "use_repository_button": True,
     "use_edit_page_button": True,
     "use_issues_button": True,
-    "logo": {
-      "image_light": "_static/sasktran-dark.png",
-      "image_dark": "_static/sasktran-light.png",
-   }
 }
 
 nb_execution_timeout = 300

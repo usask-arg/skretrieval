@@ -1,11 +1,11 @@
 (_state_vector)=
 # The State Vector
 The state vector is the set of atmsopheric parameters that we are trying to retrieve.
-In `usarm` the default behaviour is to define the state vector entirely through configuration options,
+In `skretrieval` the default behaviour is to define the state vector entirely through configuration options,
 however it is also possible to override this behaviour for more complicated applications.
 
 ## Specifying the State Vector Through Configuration
-The main processing class, {py:class}`skretrieval.usarm.processing.USARMRetrieval`, takes in an argument
+The main processing class, {py:class}`skretrieval.Retrieval`, takes in an argument
 `state_kwargs` which is responsible for defining the state vector.  An example of this parameter is
 
 ```
@@ -63,16 +63,16 @@ state_kwargs={
         }
 ```
 
-`usarm` provides default methods to construct the state vector for absorbers, aerosols, and surface parameters.
+`skretrieval` provides default methods to construct the state vector for absorbers, aerosols, and surface parameters.
 
 ## Defining Your own State Vector Elements
-If the default `usarm` methods to construct the state vector are not sufficient, you can manually supply your own.
+If the default `skretrieval` methods to construct the state vector are not sufficient, you can manually supply your own.
 This is done through the decorator method,
 
 ```python
-from skretrieval import usarm
+import skretrieval as skr
 
-@usarm.processing.USARMRetrieval.register_state("category", "name")
+@skr.Retrieval.register_state("category", "name")
 def state_vector_element(self, name: str, native_alt_grid: np.array, cfg: dict):
     # calculate state vector element here
     sv_ele = ...
@@ -86,7 +86,7 @@ name of the state vector element in the configuration.  For example, we could re
 SO2 absorption through
 
 ```python
-@usarm.processing.USARMRetrieval.register_state("absorbers", "so2")
+@skr.Retrieval.register_state("absorbers", "so2")
 def state_vector_element(self, name: str, native_alt_grid: np.array, cfg: dict):
     # calculate state vector element here
     sv_ele = ...

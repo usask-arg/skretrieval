@@ -6,13 +6,13 @@ file_format: mystnb
 # Limb Scatter Ozone Retrieval
 
 Here we set up a limb scatter ozone retrieval.  The core ideas here are that we use the
-{py:class}`skretrieval.usarm.SimulatedLimbObservation` to define our observation, and that instead of using
+{py:class}`skr.observation.SimulatedLimbObservation` to define our observation, and that instead of using
 the full spectrum in the retrieval we define discrete wavelength "triplets" as the measurement vector.
 
 ```{code-cell}
 import numpy as np
+import skretrieval as skr
 
-from skretrieval import usarm
 
 # Measurement tangent altitudes
 tan_alts = np.arange(10000, 66000, 1000)
@@ -49,7 +49,7 @@ triplets = {
 wavel = np.unique(np.concatenate([triplets[t]["wavelength"] for t in triplets])).astype(float)
 
 # Set up a simulated observation with our tangent altitudes, wavelengths, and use 1.5x the initial guess for ozone
-obs = usarm.observation.SimulatedLimbObservation(
+obs = skr.observation.SimulatedLimbObservation(
     cos_sza=0.2,
     relative_azimuth=0,
     observer_altitude=200000,
@@ -63,12 +63,12 @@ obs = usarm.observation.SimulatedLimbObservation(
 # Construct our measurement vectors
 meas_vec = {}
 for name, t in triplets.items():
-    meas_vec[name] = usarm.measvec.Triplet(
+    meas_vec[name] = skr.measvec.Triplet(
         t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"]
     )
 
 # Set up the retrieval object
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     obs,
     measvec=meas_vec,
     minimizer="rodgers",
@@ -93,6 +93,6 @@ ret = usarm.processing.USARMRetrieval(
 results = ret.retrieve()
 
 # Plot the results
-usarm.plotting.plot_state(results, "o3_vmr", show=True)
+skr.plotting.plot_state(results, "o3_vmr", show=True)
 
 ```

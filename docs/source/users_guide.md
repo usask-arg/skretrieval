@@ -4,10 +4,10 @@
 
 
 [Example Library](examples/main.md)
-: Collection of examples using `usarm`
+: Collection of examples using `skretrieval`
 
 [In-depth Concepts](concepts/main.md)
-: More detailed descriptions of each of the components of `usarm`
+: More detailed descriptions of each of the components of `skretrieval`
 
 [Library Functionality](lib/main.md)
 : Guides on how to use the various library functionality of `skretrieval` such as defining lineshapes

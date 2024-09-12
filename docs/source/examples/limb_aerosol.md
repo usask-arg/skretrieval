@@ -12,15 +12,14 @@ we are trying to retrieve.
 ```{code-cell}
 import numpy as np
 import sasktran2 as sk
-
-from skretrieval import usarm
+import skretrieval as skr
 ```
 
 To register the optical property for our aerosol, we use the decorator method to register it with
 the retrieval.
 
 ```{code-cell}
-@usarm.processing.USARMRetrieval.register_optical_property("stratospheric_aerosol")
+@skr.Retrieval.register_optical_property("stratospheric_aerosol")
 def stratospheric_aerosol_optical_prop(*args, **kwargs):
     refrac = sk.mie.refractive.H2SO4()
     dist = sk.mie.distribution.LogNormalDistribution().freeze(
@@ -56,7 +55,7 @@ triplets = {
 wavel = np.unique(np.concatenate([triplets[t]["wavelength"] for t in triplets])).astype(float)
 
 # Set up a simulated observation with our tangent altitudes, wavelengths, and use 1.5x the initial guess for ozone
-obs = usarm.observation.SimulatedLimbObservation(
+obs = skr.observation.SimulatedLimbObservation(
     cos_sza=0.2,
     relative_azimuth=0,
     observer_altitude=200000,
@@ -70,12 +69,12 @@ obs = usarm.observation.SimulatedLimbObservation(
 # Construct our measurement vectors
 meas_vec = {}
 for name, t in triplets.items():
-    meas_vec[name] = usarm.measvec.Triplet(
+    meas_vec[name] = skr.measvec.Triplet(
         t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"]
     )
 
 # Set up the retrieval object
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     obs,
     measvec=meas_vec,
     minimizer="rodgers",
@@ -106,7 +105,7 @@ ret = usarm.processing.USARMRetrieval(
 results = ret.retrieve()
 
 # Plot the results
-usarm.plotting.plot_state(results, "stratospheric_aerosol_extinction_per_m", show=True)
+skr.plotting.plot_state(results, "stratospheric_aerosol_extinction_per_m", show=True)
 ```
 
 ## Retrieving Aerosol Microphysical Parameters
@@ -117,7 +116,7 @@ to indicate that we want to retrieve it.
 We will start by making the database depend on `median_radius`
 
 ```{code-cell}
-@usarm.processing.USARMRetrieval.register_optical_property("stratospheric_aerosol")
+@skr.Retrieval.register_optical_property("stratospheric_aerosol")
 def stratospheric_aerosol_optical_prop(*args, **kwargs):
     refrac = sk.mie.refractive.H2SO4()
     dist = sk.mie.distribution.LogNormalDistribution().freeze(
@@ -161,7 +160,7 @@ triplets = {
 wavel = np.unique(np.concatenate([triplets[t]["wavelength"] for t in triplets])).astype(float)
 
 # Set up a simulated observation with our tangent altitudes, wavelengths, and use 1.5x the initial guess for ozone
-obs = usarm.observation.SimulatedLimbObservation(
+obs = skr.observation.SimulatedLimbObservation(
     cos_sza=0.2,
     relative_azimuth=0,
     observer_altitude=200000,
@@ -175,12 +174,12 @@ obs = usarm.observation.SimulatedLimbObservation(
 # Construct our measurement vectors
 meas_vec = {}
 for name, t in triplets.items():
-    meas_vec[name] = usarm.measvec.Triplet(
+    meas_vec[name] = skr.measvec.Triplet(
         t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"]
     )
 
 # Set up the retrieval object
-ret = usarm.processing.USARMRetrieval(
+ret = skr.Retrieval(
     obs,
     measvec=meas_vec,
     minimizer="rodgers",
@@ -218,8 +217,8 @@ ret = usarm.processing.USARMRetrieval(
 results = ret.retrieve()
 
 # Plot the results
-usarm.plotting.plot_state(results, "stratospheric_aerosol_extinction_per_m", show=True)
+skr.plotting.plot_state(results, "stratospheric_aerosol_extinction_per_m", show=True)
 
-usarm.plotting.plot_state(results, "stratospheric_aerosol_median_radius", show=True)
+skr.plotting.plot_state(results, "stratospheric_aerosol_median_radius", show=True)
 
 ```
