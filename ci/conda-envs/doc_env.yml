@@ -16,6 +16,6 @@ dependencies:
   - jplephem
   - matplotlib
   - pip:
-    - sphinx_rtd_theme
+    - sphinx_design
     - sasktran
     - myst_nb
