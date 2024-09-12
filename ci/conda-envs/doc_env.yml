@@ -17,5 +17,6 @@ dependencies:
   - matplotlib
   - pip:
     - sphinx_design
+    - sphinx-book-theme
     - sasktran
     - myst_nb
