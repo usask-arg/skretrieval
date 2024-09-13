@@ -71,10 +71,6 @@ familiar with the core concepts of the model.
 ## License
 `skretrieval` is made available under the MIT license (see [License](https://github.com/usask-arg/sasktran2/blob/main/license.md))
 
-We request that users of the package contact the authors before publishing results using `skretrieval`, and that
-the following publications are acknowledged:
-
-
 
 ```{toctree}
 :maxdepth: 4

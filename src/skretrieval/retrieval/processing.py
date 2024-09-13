@@ -148,6 +148,9 @@ class Retrieval:
     def _construct_forward_model(self):
         engine_config = sk2.Config()
 
+        for k, v in self._model_kwargs.items():
+            setattr(engine_config, k, v)
+
         return ForwardModelHandler(
             self._forward_model_cfg,
             self._observation,

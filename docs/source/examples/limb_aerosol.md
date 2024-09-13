@@ -193,7 +193,7 @@ ret = skr.Retrieval(
                 "retrieved_quantities": {
                     "extinction_per_m": {
                         "prior_influence": 1e0,
-                        "tikh_factor": 1e-2,
+                        "tikh_factor": 1e-1,
                         "min_value": 0,
                         "max_value": 1e-3
                     },

@@ -44,3 +44,33 @@ Since the lineshape may be a function of wavelength, we have to specify a functi
 wavelength and returns back the lineshape rather than just a singular lineshape.
 In addition we pass in the `model_res_nm` parameter which indicates the resolution the forward model
 should simulate the radiance at.
+
+## Configuring the Radiative Transfer Model
+Every forward model is passed a {py:class}`sasktran2.Config` object that may be used to configure
+various radiative transfer settings.  These settings are configured through the `model_kwargs`
+parameter that is passed to the {py:class}`skretrieval.Retrieval` object. For example,
+
+```python
+import sasktran2 as sk
+import skretrieval as skr
+
+model_kwargs = {
+    "num_threads": 8,
+    "multiple_scatter_source": sk.MultipleScatterSource.DiscreteOrdinates
+}
+
+ret = skr.Retrieval(..., model_kwargs=model_kwargs)
+```
+
+This is equivalent to creating a {py:class}`sasktran2.Config` object with the properties
+
+```python
+config = sk.Config()
+
+config.num_threads = 8
+config.multiple_scatter_source = sk.MultipleScatterSource.DiscreteOrdinates
+```
+
+Setting the radiative transfer settings is something that is almost almost problem
+dependent, and therefore the defaults that `skretrieval` uses are likely not
+suitable for your specific problem.  Therefore we always recommend
