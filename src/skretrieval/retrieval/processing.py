@@ -412,7 +412,7 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
             name: val["max_value"] for name, val in cfg["retrieved_quantities"].items()
         },
         prior={
-            name: val["tikh_factor"] * prior.VerticalTikhonov(1)
+            name: val["tikh_factor"] * prior.VerticalTikhonov(1, prior_state=ext)
             + val["prior_influence"] * prior.ConstantDiagonalPrior()
             for name, val in cfg["retrieved_quantities"].items()
         },

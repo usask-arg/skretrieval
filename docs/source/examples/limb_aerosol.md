@@ -192,13 +192,13 @@ ret = skr.Retrieval(
                 "nominal_wavelength": 745,
                 "retrieved_quantities": {
                     "extinction_per_m": {
-                        "prior_influence": 1e0,
+                        "prior_influence": 1e-1,
                         "tikh_factor": 1e-1,
                         "min_value": 0,
                         "max_value": 1e-3
                     },
                     "median_radius": {
-                        "prior_influence": 1e2,
+                        "prior_influence": 1e0,
                         "tikh_factor": 1e-4,
                         "min_value": 10,
                         "max_value": 900
