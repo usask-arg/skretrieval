@@ -7,7 +7,7 @@ name = "skretrieval"
 dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
-licese = {text = "MIT"}
+license = {text = "MIT"}
 dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran', 'jdcal', 'sgp4', 'astropy', 'sasktran2']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
