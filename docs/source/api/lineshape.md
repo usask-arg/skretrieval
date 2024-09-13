@@ -3,15 +3,21 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.core.lineshape.Lineshape
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.core.lineshape.LineShape
 
 ```
 
 ## Available Lineshapes
 ```{eval-rst}
-.. autoclass:: skretrieval.core.lineshape.Gaussian
-.. autoclass:: skretrieval.core.lineshape.Rectangle
-.. autoclass:: skretrieval.core.lineshape.DeltaFunction
-.. autoclass:: skretrieval.core.lineshape.UserLineShape
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.core.lineshape.Gaussian
+    skretrieval.core.lineshape.Rectangle
+    skretrieval.core.lineshape.DeltaFunction
+    skretrieval.core.lineshape.UserLineShape
 
 ```

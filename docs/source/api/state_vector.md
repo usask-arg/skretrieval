@@ -1,12 +1,18 @@
 (_api_state_vector)=
 # State Vector
 ```{eval-rst}
-.. autoclass:: skretrieval.statevector.StateVector
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.statevector.StateVector
 
 ```
 
 ## State Elements
 ```{eval-rst}
-.. autoclass:: skretrieval.retrieval.statevector.StateVectorElement
-.. autoclass:: skretrieval.retrieval.statevector.constituent.StateVectorElementConstituent
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.statevector.StateVectorElement
+    skretrieval.retrieval.statevector.constituent.StateVectorElementConstituent
 ```

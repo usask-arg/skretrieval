@@ -32,3 +32,5 @@ In addition to transforming the radiances, the transformation must also be appli
 The measurement error covariance matrix must also be propagated using Gaussian error propagation rules.
 To make this simpler, `skretrieval` provides convenience methods to handle these transformations for you.
 They can be composed to create more complicated measurement vector transformations.
+
+See [Measurement Vector API](_api_measurement_vector) for more details.

@@ -1,8 +1,11 @@
 (_api_prior)=
 # Priors
 ```{eval-rst}
-.. autoclass:: skretrieval.prior.VerticalTikhonov
-.. autoclass:: skretrieval.prior.ManualPrior
-.. autoclass:: skretrieval.prior.ConstantDiagonalPrior
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.prior.VerticalTikhonov
+    skretrieval.retrieval.prior.ManualPrior
+    skretrieval.retrieval.prior.ConstantDiagonalPrior
 
 ```

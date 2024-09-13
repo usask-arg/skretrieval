@@ -3,13 +3,19 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.observation.Observation
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.observation.Observation
 
 ```
 
 ## Simulated Observations
 ```{eval-rst}
-.. autoclass:: skretrieval.observation.SimulatedLimbObservation
-.. autoclass:: skretrieval.observation.SimulatedNadirObservation
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.observation.SimulatedLimbObservation
+    skretrieval.retrieval.observation.SimulatedNadirObservation
 
 ```

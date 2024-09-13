@@ -34,20 +34,20 @@ We also specify `state_adjustment_factors` which are some options to change the 
 Then we can set up the main retrieval class
 
 ```{code-cell}
-ret = skr.Retrieval(  observation,
-                                        state_kwargs={
-                                            "altitude_grid": np.arange(0, 70000, 1000),
-                                            "absorbers": {
-                                            "o3": {
-                                                "prior_influence": 1e-1,
-                                                "tikh_factor": 1e-1,
-                                                "log_space": False,
-                                                "min_value": 0,
-                                                "max_value": 1,
-                                            },
-                                        },
-                                        }
-                        )
+ret = skr.Retrieval(observation,
+                    state_kwargs={
+                        "altitude_grid": np.arange(0, 70000, 1000),
+                        "absorbers": {
+                        "o3": {
+                            "prior_influence": 1e-1,
+                            "tikh_factor": 1e-1,
+                            "log_space": False,
+                            "min_value": 0,
+                            "max_value": 1,
+                        },
+                      },
+                    }
+                    )
 ```
 The main thing we had to specify is `state_kwargs`.  This defines our atmospheric state {math}`\mathbf{x}`, as well as any priors we attach to it.
 In this case, the quantities that we are retrieving is just ozone, and note that we have given it the name "o3" which matches what we had

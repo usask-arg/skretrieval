@@ -3,14 +3,27 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.retrieval.ForwardModel
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.ForwardModel
 
 ```
 
 ## Available Forward Models
 ```{eval-rst}
-.. autoclass:: skretrieval.forwardmodel.IdealViewingSpectrograph
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.forwardmodel.IdealViewingSpectrograph
 
 ```
 
 ## Mixins
+```{eval-rst}
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.forwardmodel.IdealViewingMixin
+    skretrieval.retrieval.forwardmodel.SpectrometerMixin
+```

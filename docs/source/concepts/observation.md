@@ -52,3 +52,8 @@ Each simulation class is slightly different, and will require different informat
     skretrieval.observation.SimulatedLimbObservation
     skretrieval.observation.SimulatedNadirObservation
 ```
+
+## Defining Real Observations
+Real observations are created through creating your own class that inherits from {py:class}`skretrieval.observation.Observation`. You must then
+implement the `skretrieval_l1` and `sasktran_geometry` methods which return back the "Core radiance format" as well as information
+on the ideal measurement geometry.

@@ -44,3 +44,4 @@ make_vs_sln.bat
 src/skretrieval/_version.py
 src/skretrieval.egg-info/*
 local_scripts
+docs/source/api/generated/*

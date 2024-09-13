@@ -3,6 +3,9 @@
 
 ## Base Class
 ```{eval-rst}
-.. autoclass:: skretrieval.Retrieval
+.. autosummary::
+    :toctree: generated/
+
+    skretrieval.retrieval.processing.Retrieval
 
 ```
