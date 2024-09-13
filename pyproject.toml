@@ -7,6 +7,7 @@ name = "skretrieval"
 dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
+license = {text = "MIT"}
 dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran', 'jdcal', 'sgp4', 'astropy', 'sasktran2']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
@@ -14,6 +15,7 @@ authors = [
 requires-python = ">=3.7"
 classifiers = [
     "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

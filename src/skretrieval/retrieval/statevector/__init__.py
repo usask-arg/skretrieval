@@ -59,6 +59,9 @@ class StateVectorElement(abc.ABC):
     def modify_input_radiance(self, radiance: xr.Dataset):
         return radiance
 
+    def describe(self, **kwargs) -> xr.Dataset | None:
+        return None
+
 
 class StateVector:
     def __init__(self, elements: Iterable[StateVectorElement]):
@@ -111,3 +114,26 @@ class StateVector:
             wf_names = [key for key in radiance if key.startswith("wf_")]
             radiance = radiance.drop(wf_names)
         return radiance
+
+    def describe(self, rodgers_output: dict, **kwargs) -> xr.Dataset:
+        all_ds = []
+
+        covar = rodgers_output["error_covariance_from_noise"]
+        averaging_kernel = rodgers_output["averaging_kernel"]
+
+        start = 0
+        for state_element in self._elements:
+            end = start + len(state_element.state())
+
+            s = slice(start, end)
+            ds = state_element.describe(
+                covariance=covar[s, s],
+                averaging_kernel=averaging_kernel[s, s],
+                **kwargs,
+            )
+            if ds is not None:
+                all_ds.append(ds)
+
+            start = end
+
+        return xr.merge(all_ds)

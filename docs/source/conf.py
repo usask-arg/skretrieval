@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from importlib.metadata import version as get_version
 
-import sphinx_rtd_theme
-
 # -*- coding: utf-8 -*-
 #
 # Configuration file for the Sphinx documentation builder.
@@ -26,7 +24,7 @@ import sphinx_rtd_theme
 # -- Project information -----------------------------------------------------
 
 project = 'skretrieval'
-copyright = '2023, USask ARG'
+copyright = '2024, USask ARG'
 author = 'USask ARG'
 
 autodoc_docstring_signature = True
@@ -59,9 +57,22 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.mathjax',
     'sphinx.ext.napoleon',
-    'IPython.sphinxext.ipython_console_highlighting',
-    'IPython.sphinxext.ipython_directive'
+    'myst_nb',
+    "sphinx.ext.viewcode",
+    "sphinx.ext.intersphinx",
+    #"sphinx_copybutton",
+    "sphinx_design",
+    #"sphinx_examples",
+    #"sphinx_tabs.tabs",
+    #"sphinx_thebe",
+    #"sphinx_togglebutton",
+    #"sphinxcontrib.bibtex",
+    #"sphinxext.opengraph",
+    # For the kitchen sink
+    "sphinx.ext.todo",
 ]
+
+autosummary_generate = True
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -98,20 +109,50 @@ pygments_style = None
 #
 
 
-html_theme = "sphinx_rtd_theme"
-
-html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
-
-# Theme options are theme-specific and customize the look and feel of a theme
-# further.  For a list of options available for each theme, see the
-# documentation.
-#
-# html_theme_options = {}
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
+html_theme = "sphinx_book_theme"
 html_static_path = ['_static']
+html_css_files = ["locals.css"]
+
+html_theme_options = {
+    "github_url": "https://github.com/usask-arg/skretrieval",
+    "repository_url": "https://github.com/usask-arg/skretrieval",
+    "repository_branch": "main",
+    "path_to_docs": "docs/sphinx/source",
+    "use_repository_button": True,
+    "use_edit_page_button": True,
+    "use_issues_button": True,
+}
+
+nb_execution_timeout = 300
+
+
+myst_enable_extensions = [
+    "dollarmath",
+    "amsmath",
+    "deflist",
+    # "html_admonition",
+    # "html_image",
+    "colon_fence",
+    # "smartquotes",
+    # "replacements",
+    # "linkify",
+    # "substitution",
+]
+
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3/", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/stable", None),
+    "numpy": ("https://numpy.org/doc/stable", None),
+    "scipy": ("https://docs.scipy.org/doc/scipy", None),
+    "matplotlib": ("https://matplotlib.org/stable/", None),
+    "dask": ("https://docs.dask.org/en/latest", None),
+    "sparse": ("https://sparse.pydata.org/en/latest/", None),
+    "xarray-tutorial": ("https://tutorial.xarray.dev/", None),
+    "xarray": ("https://docs.xarray.dev/en/stable/", None),
+    "sasktran2": ("https://sasktran2.readthedocs.io/en/latest/", None),
+    # "opt_einsum": ("https://dgasmith.github.io/opt_einsum/", None),
+}
+
 
 # Custom sidebar templates, must be a dictionary that maps document names
 # to template names.

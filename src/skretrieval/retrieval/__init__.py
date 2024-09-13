@@ -6,6 +6,8 @@ import numpy as np
 
 from skretrieval.core.radianceformat import RadianceBase
 
+from . import observation
+
 
 class ForwardModel(ABC):
     """

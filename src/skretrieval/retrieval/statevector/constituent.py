@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from copy import copy
-
 import numpy as np
 import sasktran2 as sk2
 import xarray as xr
-from scipy.linalg import block_diag, toeplitz
+from scipy.linalg import block_diag
 
-from skretrieval.retrieval.tikhonov import two_dim_vertical_first_deriv
+from skretrieval.retrieval.prior import BasePrior
 
 from . import StateVectorElement
 
@@ -22,8 +20,7 @@ class StateVectorElementConstituent(
         property_names: list[str],
         min_value=None,
         max_value=None,
-        prior_influence=0,
-        first_order_tikh=None,
+        prior: dict[BasePrior] | None = None,
         log_space=False,
         enabled=True,
     ):
@@ -42,15 +39,13 @@ class StateVectorElementConstituent(
             Minimum values for the property names as a dictionary, by default {}
         max_value : dict, optional
             maximumum values for the property names as a dictionary, by default {}
-        prior_influence : int, optional
-            Prior influence for the property names as a dictionary, by default 0
-        first_order_tikh : dict, optional
-            First order tikhonov factors for the property names as a dictionary, by default {}
+        prior : dict, optional
+            Prior objects for each property name, by default {}
         log_space : bool, optional
             If true then the state elements will be rescaled to logarithmic space, by default False
         """
-        if first_order_tikh is None:
-            first_order_tikh = {}
+        if prior is None:
+            prior = {}
         if max_value is None:
             max_value = {}
         if min_value is None:
@@ -62,15 +57,17 @@ class StateVectorElementConstituent(
         self._min_value = min_value
         self._max_value = max_value
 
-        self._prior = copy(self.state())
-        self._prior_influence = prior_influence
-        self._first_order_tikh = first_order_tikh
+        self._prior = prior
 
-        self._prior_dict = {}
+        start = 0
         for property_name in self._property_names:
-            self._prior_dict[property_name] = copy(
-                getattr(self._constituent, property_name)
-            )
+            if property_name in self._prior:
+                n = len(getattr(self._constituent, property_name))
+                self._prior[property_name].init(self, slice(start, start + n))
+                start += n
+            else:
+                self._prior[property_name] = BasePrior()
+
         super().__init__(enabled)
 
     def state(self) -> np.array:
@@ -113,51 +110,25 @@ class StateVectorElementConstituent(
         prior_mats = []
 
         for property_name in self._property_names:
-            val = getattr(self._constituent, property_name)
-
-            corel = np.zeros_like(val)
-            corel[0] = 1
-            # corel[1] = 0.7
-            # corel[2] = 0.5
-            # corel[3] = 0.3
-            # corel[4] = 0.1
+            inv_S_a = self._prior[property_name].inverse_covariance
 
             if self._log_space:
-                prior_mats.append(
-                    np.linalg.inv(
-                        toeplitz(corel) * self._prior_influence[property_name] ** 2
-                    )
-                )
+                prior_mats.append(inv_S_a)
             else:
                 prior_mats.append(
-                    np.linalg.inv(
-                        toeplitz(corel)
-                        * np.outer(
-                            self._prior_dict[property_name],
-                            self._prior_dict[property_name],
-                        )
-                        * self._prior_influence[property_name] ** 2
+                    inv_S_a
+                    / np.outer(
+                        self._prior[property_name].state,
+                        self._prior[property_name].state,
                     )
                 )
-
-            if property_name == "vmr" and self._constituent_name == "so2":
-                prior_mats[-1][:20, :20] *= 1e10
-                prior_mats[-1][-40:, -40:] *= 1e10
-
-            if property_name in self._first_order_tikh:
-                gamma = two_dim_vertical_first_deriv(1, len(val)) * (
-                    1 / self._first_order_tikh[property_name]
-                )
-
-                if not self._log_space:
-                    gamma /= self._prior_dict[property_name][np.newaxis, :]
-
-                prior_mats[-1] += gamma.T @ gamma
 
         return block_diag(*prior_mats)
 
     def apriori_state(self) -> np.array:
-        return self._prior
+        return np.concatenate(
+            [self._prior[property].state for property in self._property_names]
+        )
 
     def name(self) -> str:
         return self._constituent_name
@@ -214,3 +185,72 @@ class StateVectorElementConstituent(
 
     def register_derivative(self, atmo: sk2.Atmosphere, name: str):
         return self._constituent.register_derivative(atmo, name)
+
+    def describe(self, **kwargs) -> xr.Dataset | None:
+        ds = xr.Dataset()
+
+        if (
+            type(self._constituent)
+            is sk2.constituent.brdf.lambertiansurface.LambertianSurface
+        ):
+            albedo = getattr(self._constituent, self._property_names[0])
+
+            ds[self._constituent_name] = xr.DataArray(
+                albedo,
+                dims=[self._constituent._interp_var],
+                coords={self._constituent._interp_var: self._constituent._x},
+            )
+            ds[self._constituent_name + "_1sigma_error"] = xr.DataArray(
+                np.sqrt(np.diag(kwargs["covariance"])),
+                dims=[self._constituent._interp_var],
+                coords={self._constituent._interp_var: self._constituent._x},
+            )
+
+        else:
+            start = 0
+            for property_name in self._property_names:
+                end = start + len(getattr(self._constituent, property_name))
+
+                ds[self._constituent_name + "_" + property_name] = xr.DataArray(
+                    getattr(self._constituent, property_name), dims=["altitude"]
+                )
+
+                ds[
+                    self._constituent_name + "_" + property_name + "_prior"
+                ] = xr.DataArray(self._prior[property_name].state, dims=["altitude"])
+
+                if "covariance" in kwargs:
+                    if self._log_space:
+                        ds[
+                            self._constituent_name
+                            + "_"
+                            + property_name
+                            + "_1sigma_error"
+                        ] = xr.DataArray(
+                            np.sqrt(np.diag(kwargs["covariance"][start:end]))
+                            * getattr(self._constituent, property_name),
+                            dims=["altitude"],
+                        )
+                    else:
+                        ds[
+                            self._constituent_name
+                            + "_"
+                            + property_name
+                            + "_1sigma_error"
+                        ] = xr.DataArray(
+                            np.sqrt(np.diag(kwargs["covariance"][start:end])),
+                            dims=["altitude"],
+                        )
+
+                if "averaging_kernel" in kwargs:
+                    ds[
+                        self._constituent_name
+                        + "_"
+                        + property_name
+                        + "_averaging_kernel"
+                    ] = xr.DataArray(
+                        kwargs["averaging_kernel"][start:end, start:end],
+                        dims=["altitude", "altitude_2"],
+                    )
+
+        return ds

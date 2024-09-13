@@ -34,8 +34,6 @@ requirements:
     - sasktran2
 
 test:
-  imports:
-    - skretrieval
   requires:
     - pytest
   source_files:
