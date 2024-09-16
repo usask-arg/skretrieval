@@ -243,9 +243,6 @@ class SimulatedObservation(Observation):
         l1 = forward_model.calculate_radiance()
         self._append_noise_to_l1(l1)
 
-        for _, v in l1.items():
-            v.data["radiance_noise"] = v.data["radiance"] * 0.01
-
         for k, _ in self._state_adjustment_factors.items():
             state_vector.sv[k].update_state(old_x[k])
 
