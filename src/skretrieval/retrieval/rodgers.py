@@ -296,14 +296,13 @@ class Rodgers(Minimizer):
             chi_sq_only_meas_linear /= len(y_meas)
             chi_sq_linear /= len(y_meas)
 
+            logging.info("Iteration %i of %i", iter_idx + 1, self._max_iter)
             logging.info(
-                "",
-                extra={
-                    "chi_sq": chi_sq,
-                    "chi_sq_only_meas": chi_sq_only_meas,
-                    "expected_chi_sq": chi_sq_linear,
-                    "chi_sq_only_meas_linear": chi_sq_only_meas_linear,
-                },
+                "    chi_sq: %f, chi_sq_only_meas: %f, expected_chi_sq: %f, chi_sq_only_meas_linear: %f",
+                chi_sq,
+                chi_sq_only_meas,
+                chi_sq_linear,
+                chi_sq_only_meas_linear,
             )
 
             retrieval_target.update_state(x_new)
@@ -313,7 +312,7 @@ class Rodgers(Minimizer):
                 @ (K.T @ inv_Sy @ (y_meas - y_ret) + inv_Sa @ (x_a - x))
                 / len(x)
             )
-            logging.info("", extra={"dcost": dcost})
+            logging.info("    dcost: %f", dcost)
 
             if chi_sq_prev is not None and chi_sq_prev < chi_sq:
                 # Iteration was worse
@@ -324,8 +323,8 @@ class Rodgers(Minimizer):
                 else:
                     chi_sq_prev = chi_sq
                 logging.info(
-                    "Iteration was worse increasing LM factor",
-                    extra={"lm_damping": self._lm_damping},
+                    "    Iteration was worse increasing LM factor to: %f",
+                    self._lm_damping,
                 )
             elif chi_sq_prev is None or chi_sq < chi_sq_prev:
                 best_x = copy(x)
@@ -334,8 +333,8 @@ class Rodgers(Minimizer):
                 if self._iterative_update_lm and iter_idx > 0:
                     self._lm_damping /= self._lm_change_factor
                     logging.info(
-                        "Iteration was better decreasing LM factor",
-                        extra={"lm_damping": self._lm_damping},
+                        "    Iteration was better, decreasing LM factor to: %f",
+                        self._lm_damping,
                     )
 
             xs.append(retrieval_target.state_vector())
@@ -346,15 +345,15 @@ class Rodgers(Minimizer):
                     and chi_sq / chi_sq_linear > 1
                 ):
                     logging.info(
-                        "Stopping due to early convergence",
-                        extra={"convergence_ratio": chi_sq / chi_sq_linear},
+                        "    Stopping due to early convergence, converage_ratio: %f",
+                        chi_sq / chi_sq_linear,
                     )
                     break
             elif (self._convergence_check_method.lower() == "dcost") and (
                 dcost < self._convergence_factor
             ):
                 logging.info(
-                    "Stopping due to early convergence. dcost is less than convergence_factor"
+                    "    Stopping due to early convergence. dcost is less than convergence_factor"
                 )
                 break
 
