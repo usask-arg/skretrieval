@@ -5,6 +5,7 @@ from copy import copy
 import numpy as np
 import sasktran as sk
 import xarray as xr
+import logging
 from scipy import sparse
 
 from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
@@ -71,6 +72,7 @@ class EngineHRTwoDim:
         output = {}
         all_segment_radiances = []
         all_angleidx = []
+        i = 0
         for segment in self._geo_segments:
             options = copy(self._common_options)
             new_geometry = self._combined_geometry(segment)
@@ -78,7 +80,7 @@ class EngineHRTwoDim:
             geodetic.from_lat_lon_alt(
                 new_geometry.reference_point[0],
                 new_geometry.reference_point[1],
-                new_geometry.reference_point[1],
+                new_geometry.reference_point[2],
             )
 
             local_angles, angleidx, normalandreference = self._grid.get_local_plane(
@@ -91,15 +93,19 @@ class EngineHRTwoDim:
             engine.atmosphere_dimensions = 2
             engine.grid_spacing = self._grid_spacing
 
+            logging.debug(f"Calculating segment radiance {i}")
             segment_radiance = engine.calculate_radiance(
                 "xarray",
                 full_stokes_vector=full_stokes_vector,
                 stokes_orientation=stokes_orientation,
             )
 
+            logging.debug(f"   Done")
+            i += 1
             all_segment_radiances.append(segment_radiance.drop("wf_brdf"))
             all_angleidx.append(angleidx)
 
+        logging.debug("all segments calculated")
         if self._common_options.get("calcwf", 0) == 3:
             # Calculating weighting functions and we have to convert the weighting functions to the overall grid
             num_los = [len(ds["los"]) for ds in all_segment_radiances]
@@ -152,6 +158,7 @@ class EngineHRTwoDim:
 
         output["radiance"] = image_radiances
 
+        logging.debug("Radiative transfer complete")
         return output
 
     def _construct_segments(self):
@@ -187,15 +194,14 @@ class EngineHRTwoDim:
         new_geometry = sk.Geometry()
         new_geometry.lines_of_sight = all_lines_of_sight
 
-        mean_lat = np.nanmean(
-            [los.tangent_location().latitude for los in all_lines_of_sight]
-        )
-        mean_lon = np.nanmean(
-            [los.tangent_location().longitude for los in all_lines_of_sight]
-        )
+        mean_loc = np.nanmean(np.vstack([los.tangent_location().location for los in all_lines_of_sight]), axis=0)
+
         mean_mjd = np.nanmean([los.mjd for los in all_lines_of_sight])
 
-        new_reference_point = [mean_lat, mean_lon, 0, mean_mjd]
+        geod = sk.Geodetic()
+        geod.from_xyz(mean_loc)
+
+        new_reference_point = [geod.latitude, geod.longitude, 0, mean_mjd]
         new_geometry.reference_point = new_reference_point
 
         return new_geometry
