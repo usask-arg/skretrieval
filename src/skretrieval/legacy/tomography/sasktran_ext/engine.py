@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import logging
 from copy import copy
 
 import numpy as np
 import sasktran as sk
 import xarray as xr
-import logging
 from scipy import sparse
 
 from skretrieval.legacy.tomography.grids import OrbitalPlaneGrid
@@ -93,14 +93,14 @@ class EngineHRTwoDim:
             engine.atmosphere_dimensions = 2
             engine.grid_spacing = self._grid_spacing
 
-            logging.debug(f"Calculating segment radiance {i}")
+            logging.debug("Calculating segment radiance %i", i)
             segment_radiance = engine.calculate_radiance(
                 "xarray",
                 full_stokes_vector=full_stokes_vector,
                 stokes_orientation=stokes_orientation,
             )
 
-            logging.debug(f"   Done")
+            logging.debug("   Done")
             i += 1
             all_segment_radiances.append(segment_radiance.drop("wf_brdf"))
             all_angleidx.append(angleidx)
@@ -194,7 +194,10 @@ class EngineHRTwoDim:
         new_geometry = sk.Geometry()
         new_geometry.lines_of_sight = all_lines_of_sight
 
-        mean_loc = np.nanmean(np.vstack([los.tangent_location().location for los in all_lines_of_sight]), axis=0)
+        mean_loc = np.nanmean(
+            np.vstack([los.tangent_location().location for los in all_lines_of_sight]),
+            axis=0,
+        )
 
         mean_mjd = np.nanmean([los.mjd for los in all_lines_of_sight])
 

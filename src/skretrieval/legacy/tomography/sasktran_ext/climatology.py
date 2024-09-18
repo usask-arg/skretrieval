@@ -49,9 +49,9 @@ class OrbitalPlaneClimatology(ClimatologyBase):
             normalandreference[:3],
         )
 
-        for key, item in local_values.items():
-            if len(local_angles)*len(self._grid.altitudes) != len(item.flatten()):
-               raise ValueError()
+        for _, item in local_values.items():
+            if len(local_angles) * len(self._grid.altitudes) != len(item.flatten()):
+                raise ValueError()
 
         return user_clim.skif_object()
 
