@@ -186,6 +186,19 @@ class StateVectorElementConstituent(
     def register_derivative(self, atmo: sk2.Atmosphere, name: str):
         return self._constituent.register_derivative(atmo, name)
 
+    def adjust_constituent_attributes(self, **kwargs):
+        for key, value in kwargs.items():
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    if k.lower() == "scale":
+                        setattr(
+                            self._constituent, key, getattr(self._constituent, key) * v
+                        )
+                    if k.lower() == "set":
+                        setattr(self._constituent, key, v)
+            else:
+                setattr(self._constituent, key, getattr(self._constituent, key) * value)
+
     def describe(self, **kwargs) -> xr.Dataset | None:
         ds = xr.Dataset()
 

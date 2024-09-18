@@ -238,7 +238,10 @@ class SimulatedObservation(Observation):
         old_x = {}
         for k, v in self._state_adjustment_factors.items():
             old_x[k] = copy(state_vector.sv[k].state())
-            state_vector.sv[k].update_state(state_vector.sv[k].state() * v)
+            if isinstance(v, dict):
+                state_vector.sv[k].adjust_constituent_attributes(**v)
+            else:
+                state_vector.sv[k].update_state(state_vector.sv[k].state() * v)
 
         l1 = forward_model.calculate_radiance()
         self._append_noise_to_l1(l1)

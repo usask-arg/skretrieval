@@ -46,14 +46,83 @@ However `skretrieval` also provides several convenient simulated observation cla
 These simulations typically piggy back off the forward model and state vector defined in the retrieval, modifying them in slight ways to simulate observations.
 Each simulation class is slightly different, and will require different information to use.
 
+When using the built in simulation functionality, the state vector can be adjusted using the `state_adjustment_factors` argument
+to the simulated observation class.  Suppose we have a retrieval with the state defined through
+
+
+```
+state_kwargs={
+        "altitude_grid": np.arange(0, 70000, 1000),
+        "absorbers": {
+            "o3": {
+                "prior_influence": 5e5,
+                "tikh_factor": 1e-2,
+                "log_space": False,
+                "min_value": 0,
+                "max_value": 1,
+            },
+            "no2: {
+                "prior_influence": 5e5,
+                "tikh_factor": 1e-2,
+                "log_space": False,
+                "min_value": 0,
+                "max_value": 1,
+            }
+        },
+        "aerosols": {
+            "stratospheric_aerosol": {
+                "type": "extinction_profile",
+                "nominal_wavelength": 745,
+                "retrieved_quantities": {
+                    "extinction_per_m": {
+                        "prior_influence": 1e0,
+                        "tikh_factor": 1e-2,
+                        "min_value": 0,
+                        "max_value": 1e-3
+                    },
+                    "median_radius": {
+                        "prior_influence": 1e2,
+                        "tikh_factor": 1e-4,
+                        "min_value": 10,
+                        "max_value": 900
+                    }
+                },
+                "prior": {
+                    "extinction_per_m": {"type": "testing"},
+                    "median_radius": {"type": "constant", "value": 80}
+                }
+            }
+        },
+        "surface": {
+            "lambertian_albedo": {
+                "prior_influence": 0,
+                "tikh_factor": 1e-2,
+                "log_space": False,
+                "wavelengths": np.array([280, 360]),
+                "initial_value": 0.5,
+            }
+        },
+        }
+```
+
+We could modify the state vector by setting
+
+```
+state_adjustment_factors = {
+    "o3": {"vmr": {"scale": 2}},
+    "stratospheric_aerosol": {
+        "extinction_per_m": {"scale": 10},
+        "median_radius": {"set": 120}
+    }
+}
+```
+
+which will scale the ozone vmr by a factor of 2, the aerosol extinction by a factor of 10, and set
+the median radius to 120.
+
 ### Simulation Classes
 ```{eval-rst}
 .. autosummary::
     skretrieval.observation.SimulatedLimbObservation
     skretrieval.observation.SimulatedNadirObservation
 ```
-
-## Defining Real Observations
-Real observations are created through creating your own class that inherits from {py:class}`skretrieval.observation.Observation`. You must then
-implement the `skretrieval_l1` and `sasktran_geometry` methods which return back the "Core radiance format" as well as information
-on the ideal measurement geometry.

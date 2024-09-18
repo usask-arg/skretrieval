@@ -15,6 +15,10 @@ def test_simulated_retrieval():
         reference_latitude=20,
         reference_longitude=0,
         sample_wavelengths=np.arange(280, 350, 0.5),
+        state_adjustment_factors={
+            "o3": {"vmr": {"scale": 2}},
+            "lambertian_albedo": {"albedo": {"scale": 0.5}},
+        },
     )
 
     ret = skr.Retrieval(
