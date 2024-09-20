@@ -96,7 +96,7 @@ class MeasurementVector:
         return obs_samples
 
 
-def pre_process(l1: dict[RadianceGridded], n: int) -> dict[RadianceGridded]:
+def pre_process(l1: dict[RadianceGridded], n: int = 1) -> dict[RadianceGridded]:
     """
     Called before the measurement vector is applied. This function will ensure that the L1 data
     always has the necessary fields for the measurement vector to work.
@@ -104,6 +104,9 @@ def pre_process(l1: dict[RadianceGridded], n: int) -> dict[RadianceGridded]:
     Parameters
     ----------
     l1 : dict[RadianceGridded]
+    n: int, optional
+        Number of elements in the state vector, used to create the dummy Jacobian. Default is 1
+        which can be used if the number of elements in the state vector is not important.
 
     Returns
     -------
