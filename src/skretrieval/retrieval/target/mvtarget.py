@@ -32,7 +32,7 @@ class MeasVecTarget(GenericTarget):
         self._measurement_vectors = measurement_vectors
 
     def _internal_measurement_vector(self, l1_data: dict[RadianceGridded]):
-        l1 = pre_process(l1_data)
+        l1 = pre_process(l1_data, len(self.state_vector()))
 
         res = []
         for _, v in self._measurement_vectors.items():

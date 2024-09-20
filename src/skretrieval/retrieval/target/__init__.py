@@ -217,6 +217,18 @@ class GenericTarget(RetrievalTarget):
 
         return np.diag(1 / mapping) @ inv_Sa @ np.diag(1 / mapping)
 
+    def update_state_slices(self):
+        # Construct slices that map the full state vector to each individual state vector element
+        self._state_slices = []
+        cur_idx = 0
+        for state_element in self._state_vector.state_elements:
+            if state_element.enabled:
+                n = len(state_element.state())
+                self._state_slices.append(slice(cur_idx, cur_idx + n))
+                cur_idx += n
+            else:
+                self._state_slices.append(None)
+
     def __init__(self, state_vector: StateVector, rescale_state_elements: bool = False):
         """
         Implements a generic abstract base target class that is composed of a StateVector.  Derived classes of this
@@ -236,13 +248,4 @@ class GenericTarget(RetrievalTarget):
         self._state_vector = state_vector
         self._rescale_state_elements = rescale_state_elements
 
-        # Construct slices that map the full state vector to each individual state vector element
-        self._state_slices = []
-        cur_idx = 0
-        for state_element in self._state_vector.state_elements:
-            if state_element.enabled:
-                n = len(state_element.state())
-                self._state_slices.append(slice(cur_idx, cur_idx + n))
-                cur_idx += n
-            else:
-                self._state_slices.append(None)
+        self.update_state_slices()
