@@ -11,7 +11,7 @@ from skretrieval.retrieval.rodgers import Rodgers
 from skretrieval.retrieval.scipy import SciPyMinimizer, SciPyMinimizerGrad
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
 
-from .ancillary import US76Ancillary
+from .ancillary import Ancillary, US76Ancillary
 from .forwardmodel import ForwardModelHandler, IdealViewingSpectrograph
 from .measvec import MeasurementVector, select
 from .observation import Observation
@@ -60,6 +60,7 @@ class Retrieval:
         measvec: dict[MeasurementVector] | None = None,
         forward_model_cfg: dict | None = None,
         minimizer="rodgers",
+        ancillary: Ancillary | None = None,
         l1_kwargs: dict | None = None,
         model_kwargs: dict | None = None,
         minimizer_kwargs: dict | None = None,
@@ -103,8 +104,10 @@ class Retrieval:
                 "convergence_factor": 1e-2,
                 "convergence_check_method": "dcost",
             }
-            if minimizer_kwargs is not None:
-                self._minimizer_kwargs.update(minimizer_kwargs)
+        else:
+            self._minimizer_kwargs = {}
+        if minimizer_kwargs is not None:
+            self._minimizer_kwargs.update(minimizer_kwargs)
 
         if state_kwargs is None:
             state_kwargs = {}
@@ -124,6 +127,8 @@ class Retrieval:
         self._model_kwargs = model_kwargs
         self._measurement_vector = measvec
         self._forward_model_cfg = forward_model_cfg
+
+        self._ancillary = ancillary
 
         self._measurement_vector = self._construct_measurement_vector()
 
@@ -266,7 +271,9 @@ class Retrieval:
         )
 
     def _construct_ancillary(self):
-        return US76Ancillary()
+        if self._ancillary is None:
+            return US76Ancillary()
+        return self._ancillary
 
     def _construct_target(self):
         return MeasVecTarget(
@@ -301,6 +308,8 @@ class Retrieval:
                     val.enabled = True
                 else:
                     val.enabled = False
+
+        self._target.update_state_slices()
 
         min_results = minimizer.retrieve(
             self._obs_l1, self._forward_model, self._target

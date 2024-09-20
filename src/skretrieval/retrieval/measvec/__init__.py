@@ -96,7 +96,7 @@ class MeasurementVector:
         return obs_samples
 
 
-def pre_process(l1: dict[RadianceGridded]) -> dict[RadianceGridded]:
+def pre_process(l1: dict[RadianceGridded], n: int) -> dict[RadianceGridded]:
     """
     Called before the measurement vector is applied. This function will ensure that the L1 data
     always has the necessary fields for the measurement vector to work.
@@ -116,7 +116,9 @@ def pre_process(l1: dict[RadianceGridded]) -> dict[RadianceGridded]:
         new_val = val.data.copy(deep=True)
 
         if "wf" not in new_val:
-            new_val["wf"] = xr.zeros_like(new_val["radiance"].expand_dims("x", axis=-1))
+            new_val["wf"] = xr.zeros_like(
+                new_val["radiance"].expand_dims({"x": n}, axis=-1)
+            )
 
         if "radiance_noise" not in new_val:
             new_val["radiance_noise"] = new_val["radiance"] * 1
@@ -159,7 +161,13 @@ def post_process(measurement: Measurement) -> dict:
     -------
     dict
     """
-    return {"y": measurement.y, "jacobian": measurement.K, "y_error": measurement.Sy}
+    # At this stage we have to remove the jacobian if it was a dummy one in the beginning
+    res = {"y": measurement.y, "jacobian": measurement.K, "y_error": measurement.Sy}
+
+    if measurement.K.shape[-1] == 0:
+        del res["jacobian"]
+
+    return res
 
 
 def select(l1: dict[RadianceGridded], filter: str = "*", **kwargs) -> Measurement:
@@ -300,6 +308,7 @@ class Triplet(MeasurementVector):
         weights: list[float],
         altitude_range: list[float],
         normalization_range: list[float],
+        normalize=True,
         **kwargs,
     ):
         """
@@ -348,8 +357,10 @@ class Triplet(MeasurementVector):
                 )
 
                 # The triplet value is the difference of the log radiances subtracted by the normalization multiplied by the weight
-                t_vals.append(multiply(subtract(wavel_data, norm_vals), weight))
-
+                if normalize:
+                    t_vals.append(multiply(subtract(wavel_data, norm_vals), weight))
+                else:
+                    t_vals.append(multiply(wavel_data, weight))
             # Add all of the wavelengths together
             res = t_vals[0]
             for i in range(1, len(t_vals)):
