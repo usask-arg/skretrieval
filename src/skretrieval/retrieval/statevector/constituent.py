@@ -240,7 +240,7 @@ class StateVectorElementConstituent(
                             + property_name
                             + "_1sigma_error"
                         ] = xr.DataArray(
-                            np.sqrt(np.diag(kwargs["covariance"][start:end]))
+                            np.sqrt(np.diag(kwargs["covariance"])[start:end])
                             * getattr(self._constituent, property_name),
                             dims=["altitude"],
                         )
@@ -251,7 +251,7 @@ class StateVectorElementConstituent(
                             + property_name
                             + "_1sigma_error"
                         ] = xr.DataArray(
-                            np.sqrt(np.diag(kwargs["covariance"][start:end])),
+                            np.sqrt(np.diag(kwargs["covariance"])[start:end]),
                             dims=["altitude"],
                         )
 

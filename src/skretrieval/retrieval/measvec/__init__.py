@@ -206,6 +206,32 @@ def select(l1: dict[RadianceGridded], filter: str = "*", **kwargs) -> Measuremen
     return concat(measurements)
 
 
+def nearest_selector(l1: dict[RadianceGridded], filter: str = "*", **kwargs) -> dict:
+    """
+    A special selector that will select the nearest value to the kwargs in the L1 data.
+    Returns back another dictionary with the same keys as the input dictionary but with the
+    data modified to only contain the nearest values to the kwargs
+
+    Parameters
+    ----------
+    l1 : dict[RadianceGridded]
+    filter : str, optional
+        , by default "*"
+
+    Returns
+    -------
+    dict
+    """
+    res = {}
+    for key, val in l1.items():
+        if fnmatch.fnmatch(key, filter):
+            res[key] = RadianceGridded(
+                val.data.sel(**kwargs, method="nearest").assign_coords(**kwargs)
+            )
+
+    return res
+
+
 def log(measurement: Measurement) -> Measurement:
     """
     Log transform the measurement
@@ -331,6 +357,7 @@ class Triplet(MeasurementVector):
         normalization_range : list[float]
             Altitude range to normalize to
         """
+        self._wavelength = wavelength
 
         def y(l1, **kwargs):
             t_vals = []
@@ -338,8 +365,7 @@ class Triplet(MeasurementVector):
                 # Get the useful wavelength data
                 wavel_data = log(
                     select(
-                        l1,
-                        wavelength=w,
+                        nearest_selector(l1, wavelength=w),
                         tangent_altitude=slice(altitude_range[0], altitude_range[1]),
                         **kwargs,
                     )
@@ -349,8 +375,7 @@ class Triplet(MeasurementVector):
                 norm_vals = mean(
                     log(
                         select(
-                            l1,
-                            wavelength=w,
+                            nearest_selector(l1, wavelength=w),
                             tangent_altitude=slice(
                                 normalization_range[0], normalization_range[1]
                             ),
@@ -372,3 +397,29 @@ class Triplet(MeasurementVector):
             return res
 
         super().__init__(y, **kwargs)
+
+    def required_sample_wavelengths(
+        self, obs_samples: dict[np.array]
+    ) -> dict[np.array]:
+        """
+        Determines which sample wavelengths are required for this measurement vector
+
+        Default is to just return back all of the observation wavelengths
+
+        Parameters
+        ----------
+        obs_samples : dict[np.array]
+
+        Returns
+        -------
+        dict[np.array]
+        """
+        all_wv = {}
+
+        for key, val in obs_samples.items():
+            all_wv[key] = []
+            if fnmatch.fnmatch(key, self.filter):
+                all_wv[key] = np.array(
+                    [val[np.abs(val - w).argmin()] for w in self._wavelength]
+                )
+        return all_wv

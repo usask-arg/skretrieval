@@ -13,6 +13,7 @@ from skretrieval.geodetic import geodetic
 from skretrieval.retrieval import ForwardModel
 
 from .ancillary import Ancillary
+from .measvec import MeasurementVector
 from .observation import FilteredObservation, Observation
 from .statevector.altitude import AltitudeNativeStateVector
 
@@ -22,6 +23,7 @@ class StandardForwardModel(ForwardModel):
         self,
         observation: Observation,
         state_vector: AltitudeNativeStateVector,
+        meas_vec: MeasurementVector,
         ancillary: Ancillary,
         engine_config: sk.Config,
         **kwargs,
@@ -47,6 +49,7 @@ class StandardForwardModel(ForwardModel):
         self._engine_config = engine_config
         self._ancillary = ancillary
         self._observation = observation
+        self._meas_vec = meas_vec
 
         self._viewing_geo = self._construct_viewing_geo()
         self._model_geometry = self._construct_model_geometry()
@@ -152,7 +155,16 @@ class SpectrometerMixin:
         Evaluates the lineshape at the sample wavelengths and returns back the model wavelengths
         spaced by the model resolution
         """
-        sample_wavelengths = self._observation.sample_wavelengths()
+        obs_samples = self._observation.sample_wavelengths()
+        mv_required_samples = {}
+        for key, val in self._meas_vec.items():
+            mv_required_samples[key] = val.required_sample_wavelengths(obs_samples)
+
+        sample_wavelengths = {}
+        for key in obs_samples:
+            sample_wavelengths[key] = np.unique(
+                np.concatenate([d[key] for d in mv_required_samples.values()])
+            )
 
         ws = {}
         for k, v in sample_wavelengths.items():
@@ -248,6 +260,7 @@ class IdealViewingSpectrograph(
         self,
         observation: Observation,
         state_vector: AltitudeNativeStateVector,
+        meas_vec: MeasurementVector,
         ancillary: Ancillary,
         engine_config: sk.Config,
         **kwargs,
@@ -267,7 +280,13 @@ class IdealViewingSpectrograph(
             self, kwargs.get("lineshape_fn", lambda _: DeltaFunction())
         )
         StandardForwardModel.__init__(
-            self, observation, state_vector, ancillary, engine_config, **kwargs
+            self,
+            observation,
+            state_vector,
+            meas_vec,
+            ancillary,
+            engine_config,
+            **kwargs,
         )
 
 
@@ -277,6 +296,7 @@ class ForwardModelHandler(ForwardModel):
         cfg: dict,
         observation: Observation,
         state_vector: AltitudeNativeStateVector,
+        meas_vec: MeasurementVector,
         ancillary: Ancillary,
         engine_config: sk.Config,
         **kwargs,
@@ -289,6 +309,7 @@ class ForwardModelHandler(ForwardModel):
             self._forward_models[key] = val["class"](
                 FilteredObservation(observation, key),
                 state_vector,
+                meas_vec,
                 ancillary,
                 engine_config,
                 **val.get("kwargs", {}),
