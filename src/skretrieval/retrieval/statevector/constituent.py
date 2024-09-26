@@ -266,4 +266,6 @@ class StateVectorElementConstituent(
                         dims=["altitude", "altitude_2"],
                     )
 
+                start = end
+
         return ds
