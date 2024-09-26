@@ -117,7 +117,7 @@ for name, t in triplets.items():
 
 meas_vec_nadir = {}
 meas_vec_nadir["nadir"] = skr.measvec.MeasurementVector(
-    lambda l1, **kwargs: skr.measvec.select(l1, ctxt, **kwargs), apply_to_filter="nadir"
+    lambda l1, ctxt, **kwargs: skr.measvec.select(l1, **kwargs), apply_to_filter="nadir"
 )
 ```
 Above we have set up the
