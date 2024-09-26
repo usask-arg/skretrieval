@@ -160,6 +160,7 @@ class Retrieval:
             self._forward_model_cfg,
             self._observation,
             self._state_vector,
+            self._measurement_vector,
             self._anc,
             engine_config,
         )
