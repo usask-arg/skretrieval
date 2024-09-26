@@ -161,7 +161,9 @@ class Retrieval:
         if self._measurement_vector is not None:
             return self._measurement_vector
         return {
-            "measurement": MeasurementVector(lambda l1, **kwargs: select(l1, **kwargs))
+            "measurement": MeasurementVector(
+                lambda l1, ctxt, **kwargs: select(l1, **kwargs)  # noqa: ARG005
+            )
         }
 
     def _construct_forward_model(self):
