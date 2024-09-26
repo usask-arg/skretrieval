@@ -70,7 +70,7 @@ obs = skr.observation.SimulatedLimbObservation(
 meas_vec = {}
 for name, t in triplets.items():
     meas_vec[name] = skr.measvec.Triplet(
-        t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"]
+        t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"], normalize=False
     )
 
 # Set up the retrieval object
@@ -175,7 +175,7 @@ obs = skr.observation.SimulatedLimbObservation(
 meas_vec = {}
 for name, t in triplets.items():
     meas_vec[name] = skr.measvec.Triplet(
-        t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"]
+        t["wavelength"], t["weights"], t["altitude_range"], t["normalization_range"], normalize=False
     )
 
 # Set up the retrieval object

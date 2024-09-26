@@ -389,6 +389,11 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
     aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
 
     ext = copy(aero_const.extinction_per_m)
+
+    low_boundary = np.nonzero(ext)[0][0]
+
+    ext[:low_boundary] = ext[low_boundary]
+
     ext[ext == 0] = 1e-15
 
     scale_factor = cfg.get("scale_factor", 1)
@@ -421,7 +426,10 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
             name: val["max_value"] for name, val in cfg["retrieved_quantities"].items()
         },
         prior={
-            name: val["tikh_factor"] * prior.VerticalTikhonov(1, prior_state=ext)
+            name: val["tikh_factor"]
+            * prior.VerticalTikhonov(
+                1, prior_state=secondary_kwargs.get(name, ext * scale_factor)
+            )
             + val["prior_influence"] * prior.ConstantDiagonalPrior()
             for name, val in cfg["retrieved_quantities"].items()
         },
