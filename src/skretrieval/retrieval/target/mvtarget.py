@@ -16,6 +16,7 @@ class MeasVecTarget(GenericTarget):
         self,
         state_vector: StateVector,
         measurement_vectors: dict[MeasurementVector],
+        context: dict,
         rescale_state_space: bool = False,
     ):
         """
@@ -30,13 +31,14 @@ class MeasVecTarget(GenericTarget):
         """
         super().__init__(state_vector, rescale_state_elements=rescale_state_space)
         self._measurement_vectors = measurement_vectors
+        self._context = context
 
     def _internal_measurement_vector(self, l1_data: dict[RadianceGridded]):
         l1 = pre_process(l1_data, len(self.state_vector()))
 
         res = []
         for _, v in self._measurement_vectors.items():
-            appl = v.apply(l1)
+            appl = v.apply(l1, self._context)
             if appl is not None:
                 res.append(appl)
 

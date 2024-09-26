@@ -30,6 +30,17 @@ class Retrieval:
         "other": {},
     }
 
+    def _context_fn(_):
+        return {}
+
+    @classmethod
+    def register_context(cls):
+        def decorator(context_fn: callable):
+            cls._context_fn = context_fn
+            return context_fn
+
+        return decorator
+
     @classmethod
     def register_optical_property(cls, species_name: str):
         def decorator(optical_property_fn: callable):
@@ -135,6 +146,9 @@ class Retrieval:
         self._observation = observation
 
         self._anc = self._construct_ancillary()
+
+        self._context = self._context_fn()
+
         self._state_vector = self._construct_state_vector()
         self._forward_model = self._construct_forward_model()
         self._target = self._construct_target()
@@ -278,7 +292,10 @@ class Retrieval:
 
     def _construct_target(self):
         return MeasVecTarget(
-            self._state_vector, self._measurement_vector, **self._target_kwargs
+            self._state_vector,
+            self._measurement_vector,
+            self._context,
+            **self._target_kwargs,
         )
 
     def _construct_output(self, rodgers_output: dict):
