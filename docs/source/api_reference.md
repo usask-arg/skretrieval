@@ -13,6 +13,9 @@
 [Measurement Vector](api/measurement_vector)
 : Details related to the measurement vectors
 
+[Minimizers](api/minimizer.md)
+: How the cost function is minimized
+
 [Prior](api/prior)
 : How to define Priors
 
@@ -27,6 +30,7 @@ api/observation
 api/forward_model
 api/state_vector
 api/measurement_vector
+api/minimizer
 api/prior
 api/processing
 

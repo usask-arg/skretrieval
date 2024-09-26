@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 import skretrieval as skr
 from skretrieval.retrieval.observation import SimulatedNadirObservation
 from skretrieval.util import configure_log
 
 
-def test_simulated_retrieval():
+@pytest.mark.parametrize("minimizer", ["rodgers", "scipy"])
+def test_simulated_retrieval(minimizer: str):
     configure_log()
     obs = SimulatedNadirObservation(
         cos_sza=0.6,
@@ -23,6 +25,7 @@ def test_simulated_retrieval():
 
     ret = skr.Retrieval(
         obs,
+        minimizer=minimizer,
         state_kwargs={
             "altitude_grid": np.arange(0, 70000, 1000),
             "absorbers": {

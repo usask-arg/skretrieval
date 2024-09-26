@@ -7,6 +7,7 @@ import numpy as np
 from scipy import sparse
 
 from skretrieval.retrieval import ForwardModel, Minimizer, RetrievalTarget
+from skretrieval.retrieval.erroranalysis import estimate_error
 
 
 class Rodgers(Minimizer):
@@ -402,34 +403,9 @@ class Rodgers(Minimizer):
                     inv_Sy = y_scaler @ inv_Sy @ y_scaler
 
         if self._max_iter > 0:
-            # Calculate the solution covariance and averaging kernels
-            try:
-                if sparse.issparse(A_without_lm):
-                    S = np.linalg.inv(A_without_lm.toarray())
-                else:
-                    S = np.linalg.inv(A_without_lm)
-            except np.linalg.LinAlgError:
-                if sparse.issparse(A_without_lm):
-                    S = np.linalg.pinv(A_without_lm.toarray())
-                else:
-                    S = np.linalg.pinv(A_without_lm)
-
-            G = S @ K.T @ inv_Sy
-            A = G @ K
-            meas_error_covar = G @ (Sy.dot(G.T))
-        else:
-            S = np.zeros((len(x_a), len(x_a)))
-            G = None
-            A = np.zeros((len(x_a), len(x_a)))
-            meas_error_covar = np.zeros((len(x_a), len(x_a)))
+            output_dict.update(estimate_error(K, Sy, inv_Sy, inv_Sa, A_without_lm))
 
         output_dict["xs"] = xs
-        output_dict["gain_matrix"] = G
-        output_dict["averaging_kernel"] = A
-
-        output_dict["error_covariance_from_noise"] = meas_error_covar
-        output_dict["solution_covariance"] = S
-
         output_dict["ys"] = ys
         output_dict["y_meas"] = y_meas_dict["y"]
         output_dict["forward_l1"] = forward_l1
