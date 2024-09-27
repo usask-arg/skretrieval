@@ -8,7 +8,7 @@ dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 license = {text = "MIT"}
-dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran', 'jdcal', 'sgp4', 'astropy', 'sasktran2']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran', 'jdcal', 'sgp4', 'astropy', 'sasktran2', 'simpleeval']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]

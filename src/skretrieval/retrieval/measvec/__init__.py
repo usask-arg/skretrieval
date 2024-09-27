@@ -7,8 +7,16 @@ from typing import Callable
 import numpy as np
 import xarray as xr
 from scipy.linalg import block_diag
+from simpleeval import simple_eval
 
 from skretrieval.core.radianceformat import RadianceGridded
+
+
+def _resolve_value(expr, variables):
+    if isinstance(expr, str):
+        expr = expr.replace("$", "")
+        return simple_eval(expr, names=variables)
+    return expr
 
 
 @dataclass
@@ -56,7 +64,9 @@ class MeasurementVector:
     def enabled(self, value: bool):
         self._enabled = value
 
-    def apply(self, l1_data: dict[RadianceGridded]) -> Measurement:
+    def apply(
+        self, l1_data: dict[RadianceGridded], ctxt: dict | None = None
+    ) -> Measurement:
         """
         Applies the function to the l1 data, returning back a Measurement object
 
@@ -74,7 +84,8 @@ class MeasurementVector:
             k: d for k, d in l1_data.items() if fnmatch.fnmatch(k, self._filter)
         }
         if len(apply_vals) > 0:
-            return self._fn(apply_vals, filter=self._filter)
+            local_ctxt = ctxt if ctxt is not None else {}
+            return self._fn(apply_vals, ctxt=local_ctxt, filter=self._filter)
         return None
 
     def required_sample_wavelengths(
@@ -345,6 +356,8 @@ class Triplet(MeasurementVector):
 
         Note that this measurement vector requires the l1 data to contain the "tangent_altitude" field.
 
+        Both altitude_range and normalization_range can be set through the retrieval context by prefixing the value with a '$'
+
 
         Parameters
         ----------
@@ -359,14 +372,19 @@ class Triplet(MeasurementVector):
         """
         self._wavelength = wavelength
 
-        def y(l1, **kwargs):
+        def y(l1, ctxt, **kwargs):
+            res_altitude_range = [_resolve_value(v, ctxt) for v in altitude_range]
+            res_norm_range = [_resolve_value(v, ctxt) for v in normalization_range]
+
             t_vals = []
             for w, weight in zip(wavelength, weights):
                 # Get the useful wavelength data
                 wavel_data = log(
                     select(
                         nearest_selector(l1, wavelength=w),
-                        tangent_altitude=slice(altitude_range[0], altitude_range[1]),
+                        tangent_altitude=slice(
+                            res_altitude_range[0], res_altitude_range[1]
+                        ),
                         **kwargs,
                     )
                 )
@@ -377,7 +395,7 @@ class Triplet(MeasurementVector):
                         select(
                             nearest_selector(l1, wavelength=w),
                             tangent_altitude=slice(
-                                normalization_range[0], normalization_range[1]
+                                res_norm_range[0], res_norm_range[1]
                             ),
                             **kwargs,
                         )

@@ -32,6 +32,7 @@ requirements:
     - astropy
     - numba
     - sasktran2
+    - simpleeval
 
 test:
   requires:

@@ -34,3 +34,37 @@ To make this simpler, `skretrieval` provides convenience methods to handle these
 They can be composed to create more complicated measurement vector transformations.
 
 See [Measurement Vector API](_api_measurement_vector) for more details.
+
+## Using Context in the Measurement Vector
+In some cases, to define the measurement vector we may need to use information internal to the retrieval itself.
+For example, we may want to define a measurement vector that only uses measurements with tangent altitudes higher
+than the tropopause.
+
+In this caes we can define a set of context variables that will eventually be passed to the measurement vector
+
+```python
+from skretrieval.retrieval.processing import Retrieval
+
+@Retrieval.register_context()
+def context(cls, *args, **kwargs):
+    tropopause_alt = ... # Calculate from any available ancillary information
+
+    return {"tropopause_alt": tropopause_alt}
+```
+
+Then we can define our measurement vector using placeholder information that can access this context. For
+example,
+
+```python
+from skretrieval.retrieval.measvec import Triplet
+
+meas_vec = Triplet(
+    wavelength=[470],
+    weights=[1],
+    altitude_range=["$tropopause_alt - 2000", 40000],
+    normalization_range=[40000, 45000]
+)
+```
+
+defines a triplet measurement vector that takes all measurements from 2 km below the tropopause altitude
+and above.
