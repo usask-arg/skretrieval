@@ -150,11 +150,7 @@ class SpectrometerMixin:
         self._model_res_nm = model_res_nm
         self._round_decimal = round_decimal
 
-    def _construct_model_wavelength(self):
-        """
-        Evaluates the lineshape at the sample wavelengths and returns back the model wavelengths
-        spaced by the model resolution
-        """
+    def _get_required_wavelength(self):
         obs_samples = self._observation.sample_wavelengths()
         mv_required_samples = {}
         for key, val in self._meas_vec.items():
@@ -165,6 +161,15 @@ class SpectrometerMixin:
             sample_wavelengths[key] = np.unique(
                 np.concatenate([d[key] for d in mv_required_samples.values()])
             )
+
+        return sample_wavelengths
+
+    def _construct_model_wavelength(self):
+        """
+        Evaluates the lineshape at the sample wavelengths and returns back the model wavelengths
+        spaced by the model resolution
+        """
+        sample_wavelengths = self._get_required_wavelength()
 
         ws = {}
         for k, v in sample_wavelengths.items():
@@ -191,7 +196,7 @@ class SpectrometerMixin:
         """
         Constructs the instrument model
         """
-        sample_wavelengths = self._observation.sample_wavelengths()
+        sample_wavelengths = self._get_required_wavelength()
 
         inst_models = {}
 

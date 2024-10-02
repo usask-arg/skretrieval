@@ -121,6 +121,7 @@ class SciPyMinimizer(Minimizer):
             # If the inverse covariance is not positive definite, then we can't use the cholesky
             # decomposition, but we can use an eigenvalue decomposition
             eigvals, eigvecs = np.linalg.eigh(inv_Sa)
+            eigvals[eigvals < 0] = 0
             chol_inv_Sa = np.diag(np.sqrt(eigvals)) @ eigvecs.T
 
         if self._apply_state_scaling:
