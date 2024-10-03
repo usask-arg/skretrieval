@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import numpy as np
-import sasktran as sk
+import pytest
 import sasktran2 as sk2
 
-from skretrieval.core import OpticalGeometry
-from skretrieval.core.lineshape import Gaussian, Rectangle
-from skretrieval.core.sasktranformat import SASKTRANRadiance
-from skretrieval.core.sensor.spectrograph import Spectrograph
-from skretrieval.legacy.util import convert_sasktran_legacy_geometry
+sk = pytest.importorskip("sasktran")
+
+from skretrieval.core import OpticalGeometry  # noqa: E402
+from skretrieval.core.lineshape import Gaussian, Rectangle  # noqa: E402
+from skretrieval.core.sasktranformat import SASKTRANRadiance  # noqa: E402
+from skretrieval.core.sensor.spectrograph import Spectrograph  # noqa: E402
+from skretrieval.legacy.util import convert_sasktran_legacy_geometry  # noqa: E402
 
 
 def test_spectrograph():
