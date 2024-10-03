@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import numpy as np
-import sasktran as sk
+from sasktran2.geodetic import WGS84
 
 
-def geodetic() -> sk.Geodetic:
-    return sk.Geodetic("wgs84")
+def geodetic() -> WGS84:
+    return WGS84()
 
 
 def target_lat_lon_alt(
@@ -24,12 +24,13 @@ def target_lat_lon_alt(
     Tuple[float, float, float]
         Tangent latitude/longitude/altitude if limb looking. Ground latitude/longitude if nadir looking
     """
+    location = geodetic()
 
-    los = sk.LineOfSight(mjd=0, observer=obs_position, look_vector=los_vector)
+    location.from_tangent_point(obs_position, los_vector)
 
-    location = los.tangent_location()
+    if location.altitude > 0:
+        return location.latitude, location.longitude, location.altitude
 
-    if location is None:
-        location = los.ground_intersection(0)
+    location.from_xyz(location.altitude_intercepts(0, obs_position, los_vector)[0])
 
     return location.latitude, location.longitude, location.altitude
