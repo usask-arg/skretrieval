@@ -8,7 +8,7 @@ dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 license = {text = "MIT"}
-dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran', 'jdcal', 'sgp4', 'astropy', 'sasktran2', 'simpleeval']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2', 'simpleeval']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]
@@ -24,6 +24,8 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+legacy = ["sasktran"]
+plotting = ["matplotlib"]
 
 [tool.setuptools_scm]
 write_to = "src/skretrieval/_version.py"

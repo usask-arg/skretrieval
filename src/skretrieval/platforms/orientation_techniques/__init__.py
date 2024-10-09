@@ -1,3 +1,0 @@
-from __future__ import annotations
-
-from .orientation_techniques_core import OrientationTechniques, PointingAlgorithms

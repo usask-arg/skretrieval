@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import numpy as np
-import sasktran as sk
+import pytest
 
 from skretrieval.core.sasktranformat import SASKTRANRadiance
+
+sk = pytest.importorskip("sasktran")
 
 
 def test_sasktran_legacy_format_vector():
