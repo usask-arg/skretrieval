@@ -128,6 +128,8 @@ class SpectrometerMixin:
         self,
         lineshape_fn: Callable[[float], LineShape] | None = None,
         model_res_nm=0.02,
+        model_res_cminv=0.02,
+        spectral_native_coordinate="wavelength_nm",
         round_decimal=2,
     ) -> None:
         """
@@ -139,6 +141,11 @@ class SpectrometerMixin:
             Function that takes in wavelength in nm and returns back a LineShape, by default None
         model_res_nm : float, optional
             Model Resolution to use in [nm], by default 0.02
+        model_res_cminv : float, optional
+            Model Resolution to use in [cm^-1], by default 0.02
+        spectral_native_coordinate : str, optional
+            The native coordinate for the spectral axis, by default "wavelength_nm", can also be
+            "wavenumber_cminv"
         round_decimal : int, optional
             Decimal points to round the wavelengths to in the radiative transfer calculation, by default 2
         """
@@ -148,7 +155,9 @@ class SpectrometerMixin:
             self._lineshape_fn = lineshape_fn
 
         self._model_res_nm = model_res_nm
+        self._model_res_cminv = model_res_cminv
         self._round_decimal = round_decimal
+        self._spectral_native_coordinate = spectral_native_coordinate
 
     def _get_required_wavelength(self):
         obs_samples = self._observation.sample_wavelengths()
@@ -173,22 +182,52 @@ class SpectrometerMixin:
 
         ws = {}
         for k, v in sample_wavelengths.items():
-            bounds = [self._lineshape_fn(w).bounds() for w in v]
-
-            ws[k] = np.unique(
-                np.concatenate(
-                    [
-                        np.around(
-                            np.arange(
-                                a, b + self._model_res_nm / 2, self._model_res_nm
-                            ),
-                            self._round_decimal,
-                        )
-                        + w
-                        for (a, b), w in zip(bounds, v)
-                    ]
+            if self._spectral_native_coordinate == "wavelength_nm":
+                bounds = [
+                    self._lineshape_fn(w).bounds(center=0)
+                    if self._lineshape_fn(w).zero_centered()
+                    else self._lineshape_fn(w).bounds(center=-w)
+                    for w in v
+                ]
+                ws[k] = np.unique(
+                    np.concatenate(
+                        [
+                            np.around(
+                                np.arange(
+                                    a, b + self._model_res_nm / 2, self._model_res_nm
+                                )
+                                + w,
+                                self._round_decimal,
+                            )
+                            for (a, b), w in zip(bounds, v)
+                        ]
+                    )
                 )
-            )
+            else:
+                bounds = [
+                    self._lineshape_fn(w).bounds(center=0)
+                    if self._lineshape_fn(w).zero_centered()
+                    else self._lineshape_fn(w).bounds(center=-1e7 / w)
+                    for w in v
+                ]
+                ws[k] = (
+                    1e7
+                    / np.unique(
+                        np.concatenate(
+                            [
+                                np.around(
+                                    np.arange(
+                                        1e7 / (b + w),
+                                        1e7 / (a + w) + self._model_res_cminv / 2,
+                                        self._model_res_cminv,
+                                    ),
+                                    self._round_decimal,
+                                )
+                                for (a, b), w in zip(bounds, v)
+                            ]
+                        )
+                    )[::-1]
+                )
 
         return ws
 
@@ -204,15 +243,17 @@ class SpectrometerMixin:
             inst_models[key] = SpectrographOnlySpectral(
                 sample_wavelengths[key],
                 [self._lineshape_fn(x) for x in sample_wavelengths[key]],
+                spectral_native_coordinate=self._spectral_native_coordinate,
+                assign_coord="wavelength"
+                if self._spectral_native_coordinate == "wavelength_nm"
+                else "wavenumber",
             )
 
         return inst_models
 
 
 class IdealViewingMixin:
-    def __init__(
-        self, observation: Observation, state_vector: AltitudeNativeStateVector
-    ) -> None:
+    def __init__(self, observation: Observation, model_altitude_grid: np.array) -> None:
         """
         Mixin for adding an ideal viewing geometry to the forward model. This means
         that a single line of sight is used by the forward model for each observation rather
@@ -221,19 +262,19 @@ class IdealViewingMixin:
         Parameters
         ----------
         observation : Observation
-        state_vector : AltitudeNativeStateVector
+        model_altitude_grid : np.array
         """
-        self._state_vector = state_vector
+        self._model_altitude_grid = model_altitude_grid
         self._obs = observation
 
     def _construct_viewing_geo(self):
-        return self._observation.sk2_geometry()
+        return self._obs.sk2_geometry()
 
     def _construct_model_geometry(self):
         # Construct the model geometry
 
         # State vector tells us the engine altitude grid
-        altitude_grid_m = self._state_vector.altitude_grid
+        altitude_grid_m = self._model_altitude_grid
 
         # Observation tells us the reference point
         cos_sza = self._obs.reference_cos_sza()
@@ -280,9 +321,15 @@ class IdealViewingSpectrograph(
         ancillary : Ancillary
         engine_config : sk.Config
         """
-        IdealViewingMixin.__init__(self, observation, state_vector)
+        IdealViewingMixin.__init__(self, observation, state_vector.altitude_grid)
         SpectrometerMixin.__init__(
-            self, kwargs.get("lineshape_fn", lambda _: DeltaFunction())
+            self,
+            lineshape_fn=kwargs.get("lineshape_fn", lambda _: DeltaFunction()),
+            model_res_cminv=kwargs.get("model_res_cminv", 0.02),
+            model_res_nm=kwargs.get("model_res_nm", 0.02),
+            spectral_native_coordinate=kwargs.get(
+                "spectral_native_coordinate", "wavelength_nm"
+            ),
         )
         StandardForwardModel.__init__(
             self,
