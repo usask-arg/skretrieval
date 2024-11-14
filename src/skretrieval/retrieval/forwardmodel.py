@@ -182,9 +182,8 @@ class SpectrometerMixin:
 
         ws = {}
         for k, v in sample_wavelengths.items():
-            bounds = [self._lineshape_fn(w).bounds(center=-1e7 / w) for w in v]
-
             if self._spectral_native_coordinate == "wavelength_nm":
+                bounds = [self._lineshape_fn(w).bounds(center=0) for w in v]
                 ws[k] = np.unique(
                     np.concatenate(
                         [
@@ -200,6 +199,7 @@ class SpectrometerMixin:
                     )
                 )
             else:
+                bounds = [self._lineshape_fn(w).bounds(center=-1e7 / w) for w in v]
                 ws[k] = (
                     1e7
                     / np.unique(

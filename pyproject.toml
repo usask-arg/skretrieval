@@ -27,6 +27,26 @@ test = ["pytest"]
 legacy = ["sasktran"]
 plotting = ["matplotlib"]
 
+[tool.pixi.project]
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "linux-ppc64le", "osx-64", "osx-arm64", "win-64"]
+
+[tool.pixi.pypi-dependencies]
+skretrieval = { path = ".", editable = true }
+
+[tool.pixi.dependencies]
+numpy = "*"
+sasktran2 = "*"
+astropy = "*"
+numba = "*"
+xarray = "*"
+netcdf4 = "*"
+appdirs = "*"
+jupyter = "*"
+matplotlib = "*"
+pytest = ">=8.3.3,<9"
+
+
 [tool.setuptools_scm]
 write_to = "src/skretrieval/_version.py"
 

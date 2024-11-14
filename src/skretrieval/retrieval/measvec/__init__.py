@@ -282,7 +282,7 @@ def mean(measurement: Measurement) -> Measurement:
     return Measurement(
         y=np.mean(measurement.y),
         K=np.mean(measurement.K, axis=0),
-        Sy=np.mean(np.diag(measurement.Sy)),
+        Sy=np.mean(measurement.Sy.diagonal()),
     )
 
 
@@ -322,7 +322,12 @@ def subtract(measurement: Measurement, other: Measurement) -> Measurement:
     return Measurement(
         y=measurement.y - other.y,
         K=measurement.K - other.K,
-        Sy=measurement.Sy + other.Sy,
+        Sy=(
+            measurement.Sy.toarray()
+            if sparse.issparse(measurement.Sy)
+            else measurement.Sy
+        )
+        + (other.Sy if sparse.issparse(other.Sy) else other.Sy),
     )
 
 
@@ -342,7 +347,12 @@ def add(measurement: Measurement, other: Measurement) -> Measurement:
     return Measurement(
         y=measurement.y + other.y,
         K=measurement.K + other.K,
-        Sy=measurement.Sy + other.Sy,
+        Sy=(
+            measurement.Sy.toarray()
+            if sparse.issparse(measurement.Sy)
+            else measurement.Sy
+        )
+        + (other.Sy if sparse.issparse(other.Sy) else other.Sy),
     )
 
 
