@@ -221,12 +221,6 @@ class SpectrographOnlySpectral(Sensor):
             },
         )
 
-        if "look_vectors" in radiance.data:
-            data["los_vectors"] = radiance.data["look_vectors"]
-
-        if "observer_position" in radiance.data:
-            data["observer_position"] = radiance.data["observer_position"]
-
         for key in list(radiance.data):
             if key.startswith("wf"):
                 modelled_wf = np.einsum(
@@ -240,6 +234,10 @@ class SpectrographOnlySpectral(Sensor):
                     [self._assign_coord, "los", radiance.data[key].dims[0]],
                     modelled_wf,
                 )
+            else:
+                # Copy all of the extra variables
+                if key != "radiance":
+                    data[key] = radiance.data[key]
 
         return radianceformat.RadianceGridded(data)
 

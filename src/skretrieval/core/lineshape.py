@@ -38,15 +38,30 @@ class LineShape(ABC):
         """
 
     @abstractmethod
-    def bounds(self):
+    def bounds(self, center=0):
         """
         Boundaries of the line shape.  Values outside this range are 0
+
+        Parameters
+        ----------
+        center : float, optional
+            Center of the line shape.  Default is 0
 
         Returns
         -------
         (left, right)
             Left and right boundaries of the line shape
         """
+
+    def zero_centered(self):
+        """
+        True if the lineshape is centered on 0 rather than the nominal sample
+
+        Returns
+        -------
+        bool
+        """
+        return True
 
 
 class Gaussian(LineShape):
@@ -152,16 +167,24 @@ class Gaussian(LineShape):
 
         return gaussian
 
-    def bounds(self):
+    def bounds(self, center=0):
         """
         If integration_weights is called with mean=0, all values outside the range [lower_bound, upper_bound] are
         guaranteed to be 0.
+
+        Parameters
+        ----------
+        center : float, optional
+            Center of the line shape.  Default is 0
 
         Returns
         -------
         [lower_bound, upper_bound]
         """
-        return -self.max_stdev * self._stdev, self.max_stdev * self._stdev
+        return (
+            -self.max_stdev * self._stdev - center,
+            self.max_stdev * self._stdev - center,
+        )
 
     def _analytic_linear_weights(self, mean, available_samples):
         return _gaussian_analytic_linear_weights(
@@ -307,8 +330,8 @@ class DeltaFunction(LineShape):
 
         return weights
 
-    def bounds(self):
-        return 0, 0
+    def bounds(self, center=0):
+        return center, center
 
 
 class Rectangle(LineShape):
@@ -375,8 +398,8 @@ class Rectangle(LineShape):
 
         return weights
 
-    def bounds(self):
-        return [-self._width / 2, self._width / 2]
+    def bounds(self, center=0):
+        return [-self._width / 2 + center, self._width / 2 + center]
 
 
 @vectorize("f8(f8, f8, f8)", nopython=True)
@@ -482,6 +505,7 @@ class UserLineShape(LineShape):
         x_values: np.array,
         line_values: np.array,
         zero_centered: bool,
+        integration_fraction: float = 0.999,
         mode="simple",
     ):
         """
@@ -496,6 +520,8 @@ class UserLineShape(LineShape):
             to be 0.
         zero_centered: bool
             True if the line shape values are centered at 0, false if the line shape is not centered.
+        integration_fraction: float
+            Fraction of the line shape to integrate.  Default is 1, which means the entire line shape is integrated.
         mode: str
             If set to 'simple', the line shape is interpolated to the sample values.  If mode is set to 'integrate'
             then the line shape is analytically integrated assuming linear interpolation over the sample values.
@@ -505,6 +531,29 @@ class UserLineShape(LineShape):
         self._x_values = x_values
         self._line_values = line_values
         self._zero_centered = zero_centered
+
+        center = np.argmax(np.abs(self._line_values))
+        right_integral = np.cumsum(np.abs(self._line_values[center:]))
+        left_integral = np.cumsum(np.abs(self._line_values)[:center][::-1])
+
+        try:
+            self._right_cutoff = (
+                np.nonzero(right_integral / right_integral[-1] >= integration_fraction)[
+                    0
+                ][0]
+                + center
+            )
+        except IndexError:
+            self._right_cutoff = len(self._line_values) - 1
+        try:
+            self._left_cutoff = (
+                center
+                - np.nonzero(left_integral / left_integral[-1] >= integration_fraction)[
+                    0
+                ][0]
+            )
+        except IndexError:
+            self._left_cutoff = 0
 
         self._mode = mode
         if self._mode == "integrate":
@@ -541,8 +590,15 @@ class UserLineShape(LineShape):
 
         return line_shape_interp
 
-    def bounds(self):
-        return np.min(self._x_values), np.max(self._x_values)
+    def bounds(self, center=0):
+        return (
+            self._x_values[self._left_cutoff] + center,
+            self._x_values[self._right_cutoff] + center,
+        )
+        return np.min(self._x_values) + center, np.max(self._x_values) + center
+
+    def zero_centered(self):
+        return self._zero_centered
 
     def _linear_weights(self, mean, available_samples, xs):
         offsets = mean - available_samples if self._zero_centered else available_samples

@@ -209,7 +209,7 @@ class Retrieval:
             min_value={"vmr": min_val},
             max_value={"vmr": max_val},
             prior={
-                "vmr": tikh * prior.VerticalTikhonov(1)
+                "vmr": tikh * prior.VerticalTikhonov(1, new_vmr)
                 + prior_infl * prior.ConstantDiagonalPrior()
             },
             log_space=log_space,
@@ -430,7 +430,7 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
         db,
         native_alt_grid,
         ext * scale_factor,
-        745,
+        cfg.get("nominal_wavelength", 745),
         "extend",
         **secondary_kwargs,
     )

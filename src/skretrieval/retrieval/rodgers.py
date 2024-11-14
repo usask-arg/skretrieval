@@ -108,6 +108,32 @@ class Rodgers(Minimizer):
                 inv_Sy = sparse.csc_matrix(
                     sparse.diags(1 / y_meas_dict["y_error"][good_meas], 0)
                 )
+            elif sparse.issparse(y_meas_dict["y_error"]):
+                Sy = y_meas_dict["y_error"][np.ix_(good_meas, good_meas)]
+
+                rows = Sy.indices  # Row indices of non-zero elements
+                cols = np.repeat(
+                    np.arange(Sy.shape[1]), np.diff(Sy.indptr)
+                )  # Column indices of non-zero elements
+
+                # Check if all non-zero elements are on the diagonal
+                is_diagonal = np.all(rows == cols)
+
+                if is_diagonal:
+                    # Ensure there are no zeros on the diagonal
+                    if np.any(Sy.data == 0):
+                        msg = "Cannot invert a matrix with zeros on the diagonal."
+                        raise ZeroDivisionError(msg)
+
+                    # Compute the inverse of the diagonal elements
+                    inv_data = 1.0 / Sy.data
+
+                    # Create the inverse matrix using the same indices and indptr
+                    inv_Sy = sparse.csc_matrix(
+                        (inv_data, Sy.indices, Sy.indptr), shape=Sy.shape
+                    )
+                else:
+                    inv_Sy = sparse.csc_matrix(np.linalg.inv(Sy.toarray()))
             else:
                 Sy = y_meas_dict["y_error"][np.ix_(good_meas, good_meas)]
                 inv_Sy = np.linalg.inv(Sy)

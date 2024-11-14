@@ -6,6 +6,7 @@ from typing import Callable
 
 import numpy as np
 import xarray as xr
+from scipy import sparse
 from scipy.linalg import block_diag
 from simpleeval import simple_eval
 
@@ -158,7 +159,7 @@ def concat(measurements: list[Measurement]) -> Measurement:
     return Measurement(
         y=np.concatenate([m.y for m in measurements]),
         K=np.vstack([m.K for m in measurements]),
-        Sy=block_diag(*[m.Sy for m in measurements]),
+        Sy=sparse.block_diag([m.Sy for m in measurements], format="csc"),
     )
 
 
@@ -210,7 +211,11 @@ def select(l1: dict[RadianceGridded], filter: str = "*", **kwargs) -> Measuremen
                 Measurement(
                     y=selected["radiance"].to_numpy().flatten(),
                     K=selected["wf"].to_numpy().reshape((-1, len(selected["x"]))),
-                    Sy=np.diag(selected["radiance_noise"].to_numpy().flatten() ** 2),
+                    Sy=sparse.csc_matrix(
+                        sparse.diags(
+                            selected["radiance_noise"].to_numpy().flatten() ** 2, 0
+                        )
+                    ),
                 )
             )
 
