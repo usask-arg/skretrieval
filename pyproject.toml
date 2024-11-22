@@ -45,6 +45,24 @@ appdirs = "*"
 jupyter = "*"
 matplotlib = "*"
 pytest = ">=8.3.3,<9"
+pre-commit = "*"
+ruff = "*"
+
+# Doc dependencies
+[tool.pixi.feature.docs]
+dependencies = {sphinx = "*", "myst-nb" = "*"}
+pypi-dependencies = {sphinx_book_theme = "*", sphinx_design = "*"}
+
+
+[tool.pixi.environments]
+default = ["test", "plotting", "docs"]
+
+[tool.pixi.tasks]
+show-tutorial = { cmd = "jupyter notebook", cwd = "notebooks/show/tutorial" }
+test = { cmd = "pytest tests/", cwd = "." }
+pre-commit = { cmd = "pre-commit run -a", cwd = "." }
+docs = { cmd = "sphinx-build -b html docs/source docs/build", cwd = "." }
+readthedocs = { cmd = "rm -rf $READTHEDOCS_OUTPUT/html && cp -r docs/build/ $READTHEDOCS_OUTPUT/html", depends_on = ["docs"] }
 
 
 [tool.setuptools_scm]

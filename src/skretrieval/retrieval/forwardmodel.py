@@ -116,7 +116,16 @@ class StandardForwardModel(ForwardModel):
             sk2_rad = self._state_vector.post_process_sk2_radiances(sk2_rad)
             sk2_rad = SASKTRANRadiance.from_sasktran2(sk2_rad)
 
-            l1[key] = self._inst_model[key].model_radiance(sk2_rad, None)
+            model_result = self._inst_model[key].model_radiance(sk2_rad, None)
+
+            if isinstance(model_result, dict):
+                if len(model_result) == 1:
+                    l1[key] = next(iter(model_result.values()))
+
+                for k, v in model_result.items():
+                    l1[f"{key}_{k}"] = v
+            else:
+                l1[key] = model_result
 
             self._observation.append_information_to_l1(l1)
 
@@ -131,6 +140,7 @@ class SpectrometerMixin:
         model_res_cminv=0.02,
         spectral_native_coordinate="wavelength_nm",
         round_decimal=2,
+        stokes_sensitivities=None,
     ) -> None:
         """
         Mixin for adding a spectrometer to the forward model
@@ -158,6 +168,7 @@ class SpectrometerMixin:
         self._model_res_cminv = model_res_cminv
         self._round_decimal = round_decimal
         self._spectral_native_coordinate = spectral_native_coordinate
+        self._stokes_sensitivities = stokes_sensitivities
 
     def _get_required_wavelength(self):
         obs_samples = self._observation.sample_wavelengths()
@@ -247,6 +258,7 @@ class SpectrometerMixin:
                 assign_coord="wavelength"
                 if self._spectral_native_coordinate == "wavelength_nm"
                 else "wavenumber",
+                stokes_sensitivity=self._stokes_sensitivities,
             )
 
         return inst_models
@@ -330,6 +342,7 @@ class IdealViewingSpectrograph(
             spectral_native_coordinate=kwargs.get(
                 "spectral_native_coordinate", "wavelength_nm"
             ),
+            stokes_sensitivities=kwargs.get("stokes_sensitivities"),
         )
         StandardForwardModel.__init__(
             self,
@@ -358,7 +371,7 @@ class ForwardModelHandler(ForwardModel):
         # Construct the internal forward models
         self._forward_models = {}
         for key, val in cfg.items():
-            self._forward_models[key] = val["class"](
+            self._forward_models[key] = val.get("class", IdealViewingSpectrograph)(
                 FilteredObservation(observation, key),
                 state_vector,
                 meas_vec,
