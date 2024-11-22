@@ -111,6 +111,8 @@ ret = skr.Retrieval(
         "num_streams": 8,
     },
 )
+
+results = ret.retrieve()
 ```
 
 And take a look at the resulting retrieved particle size
@@ -121,4 +123,85 @@ plt.subplot(1, 2, 1)
 plt.plot(80 * aerosol_scale, altitude_grid, "k--")
 plt.legend(["Retrieved", "Prior", "Truth"])
 plt.show()
+```
+
+Note that there are some errors, we can also check the retrieved albedo
+
+```{code-cell}
+results["state"]["lambertian_albedo"]
+```
+
+And we see that it differs from the simulated value of 0.3.
+
+Next we will repeat the calculation using a polarized instrument that measures `(I+Q)/2` and `(I-Q)/2` simultaneously.
+
+```{code-cell}
+# Set up the retrieval object
+ret = skr.Retrieval(
+    obs,
+    minimizer="scipy",
+    target_kwargs={"rescale_state_space": False},
+    state_kwargs={
+        "altitude_grid": altitude_grid,
+        "aerosols": {
+            "stratospheric_aerosol": {
+                "type": "extinction_profile",
+                "nominal_wavelength": 745,
+                "retrieved_quantities": {
+                    "extinction_per_m": {
+                        "prior_influence": 1e-6,
+                        "tikh_factor": 1e-1,
+                        "min_value": 0,
+                        "max_value": 1e-3,
+                    },
+                    "median_radius": {
+                        "prior_influence": 1e0,
+                        "tikh_factor": 1e-4,
+                        "min_value": 10,
+                        "max_value": 190,
+                    },
+                },
+                "prior": {
+                    "extinction_per_m": {"type": "testing"},
+                    "median_radius": {"type": "constant", "value": 80},
+                },
+            },
+        },
+        "surface": {
+            "lambertian_albedo": {
+                "prior_influence": 0,
+                "tikh_factor": 1e-4,
+                "log_space": False,
+                "wavelengths": sample_wavel,
+                "initial_value": 0.3,
+                "out_bounds_mode": "extend",
+            },
+        },
+    },
+    model_kwargs={
+        "num_stokes": 3,
+        "multiple_scatter_source": sk.MultipleScatterSource.DiscreteOrdinates,
+        "num_streams": 8,
+    },
+    forward_model_cfg={
+        "*": {
+            "kwargs": {"stokes_sensitivities": {"vert": np.array([0.5, 0.5, 0, 0]), "horiz": np.array([0.5, -0.5, 0, 0])}}
+        }
+    },
+)
+
+results = ret.retrieve()
+```
+
+```{code-cell}
+skr.plotting.plot_state(results, "stratospheric_aerosol_median_radius", show=False)
+plt.subplot(1, 2, 1)
+plt.plot(80 * aerosol_scale, altitude_grid, "k--")
+plt.legend(["Retrieved", "Prior", "Truth"])
+plt.show()
+```
+
+
+```{code-cell}
+results["state"]["lambertian_albedo"]
 ```
