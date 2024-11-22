@@ -158,6 +158,10 @@ class SpectrometerMixin:
             "wavenumber_cminv"
         round_decimal : int, optional
             Decimal points to round the wavelengths to in the radiative transfer calculation, by default 2
+        stokes_sensitivities : dict, optional
+            Dictionary of stokes sensitivities, by default None. Can be set to multiple measurements, e.g.,
+            {"I": np.array([1, 0, 0, 0]), "Q": np.array([0, 1, 0, 0]), "U": np.array([0, 0, 1, 0])} to measure
+            multiple stokes parameters separately.
         """
         if lineshape_fn is None:
             self._lineshape_fn = lambda _: DeltaFunction()
@@ -332,6 +336,8 @@ class IdealViewingSpectrograph(
         state_vector : AltitudeNativeStateVector
         ancillary : Ancillary
         engine_config : sk.Config
+        kwargs : dict
+            Additional arguments passed to `SpectrometerMixin`
         """
         IdealViewingMixin.__init__(self, observation, state_vector.altitude_grid)
         SpectrometerMixin.__init__(

@@ -192,9 +192,7 @@ ret = skr.Retrieval(
 )
 
 results = ret.retrieve()
-```
 
-```{code-cell}
 skr.plotting.plot_state(results, "stratospheric_aerosol_median_radius", show=False)
 plt.subplot(1, 2, 1)
 plt.plot(80 * aerosol_scale, altitude_grid, "k--")
@@ -202,7 +200,27 @@ plt.legend(["Retrieved", "Prior", "Truth"])
 plt.show()
 ```
 
+And we see that the results are better, with a more consistent surface albedo.
+
 
 ```{code-cell}
 results["state"]["lambertian_albedo"]
 ```
+
+To enable polarization we added the lines
+
+```
+    forward_model_cfg={
+        "*": {
+            "kwargs": {"stokes_sensitivities": {"vert": np.array([0.5, 0.5, 0, 0]), "horiz": np.array([0.5, -0.5, 0, 0])}}
+        }
+    },
+```
+
+Which can be a bit confusing, so we can unpack what is going on.  The first level of the dictionary `"*"` indicates that
+this configuration applies to every measurement in our observation.  This is important when our observation contains
+multiple measurements that require separate forward models and we want to configure them separately.
+
+The `"kwargs"` dictionary is the list of options that is passed to our forward model. In this case we are using
+the default forward model, which uses the  {py:class}`skretrieval.retrieval.forwardmodel.SpectrometerMixin` instrument model.  If we look at that
+forward model we see it has a `stokes_sensitivities` input argument that we can set.
