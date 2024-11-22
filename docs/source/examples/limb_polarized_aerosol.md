@@ -20,6 +20,7 @@ in this case we are scaling the particle size separately from the extinction, on
 import numpy as np
 import sasktran2 as sk
 import skretrieval as skr
+import matplotlib.pyplot as plt
 
 
 @skr.Retrieval.register_optical_property("stratospheric_aerosol")
