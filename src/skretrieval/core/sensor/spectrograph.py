@@ -154,6 +154,7 @@ class SpectrographOnlySpectral(Sensor):
         pixel_shape: list[LineShape],
         spectral_native_coordinate: str = "wavelength_nm",
         assign_coord: str = "wavelength",
+        stokes_sensitivity: dict[str, np.array] | None = None,
     ):
         """
         Similar to a spectrograph but does not perform convolution in spatial space, just wavelength
@@ -164,6 +165,14 @@ class SpectrographOnlySpectral(Sensor):
             Central wavelengths for each pixel
         pixel_shape: LineShape
             Wavelength line shape
+        spectral_native_coordinate: str
+            Coordinate the lineshape is assumed to be a function of
+        assign_coord: str
+            Resulting coordinate name in the output L1 dataset
+        stokes_sensitivity: dict
+            Dictionary of stokes sensitivity matrices. The default is {"I": np.array([1.0, 0, 0, 0])}
+            Can set to multiple sensitivies, e.g., {"vert": np.array([0.5, 0.5, 0, 0]), "horiz": np.array([0.5, -0.5, 0, 0])}
+            When set to multiple sensitivities, the output will be a dictionary of RadianceGridded objects corresponding to each sensitivity
         """
 
         self._wavelength_nm = wavelength_nm
@@ -180,6 +189,11 @@ class SpectrographOnlySpectral(Sensor):
             self._assign_vals = self._wavelength_nm
         else:
             self._assign_vals = self._wavenumber_cminv
+
+        if stokes_sensitivity is None:
+            self._stokes_sensitivity = {"I": np.array([1.0, 0, 0, 0])}
+        else:
+            self._stokes_sensitivity = stokes_sensitivity
 
     def _construct_interpolators(self, model_spectral_grid):
         if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
@@ -204,42 +218,57 @@ class SpectrographOnlySpectral(Sensor):
             radiance.data[self._spectral_native_coordinate].to_numpy()
         )
 
-        modelled_radiance = np.einsum(
-            "ij,jk...",
-            wavel_interp,
-            radiance.data["radiance"].isel(stokes=0).to_numpy(),
-            optimize=True,
-        )
+        result = {}
 
-        data = xr.Dataset(
-            {
-                "radiance": ([self._assign_coord, "los"], modelled_radiance),
-            },
-            coords={
-                self._assign_coord: self._assign_vals,
-                "xyz": ["x", "y", "z"],
-            },
-        )
+        for k, mueller in self._stokes_sensitivity.items():
+            stokes_applied_radiance = radiance.data["radiance"] @ xr.DataArray(
+                mueller, dims=["stokes"], coords={"stokes": ["I", "Q", "U", "V"]}
+            )
 
-        for key in list(radiance.data):
-            if key.startswith("wf"):
-                modelled_wf = np.einsum(
-                    "ij,ljk->ikl",
-                    wavel_interp,
-                    radiance.data[key].isel(stokes=0).to_numpy(),
-                    optimize=True,
-                )
+            modelled_radiance = np.einsum(
+                "ij,jk...",
+                wavel_interp,
+                stokes_applied_radiance.to_numpy(),
+                optimize=True,
+            )
 
-                data[key] = (
-                    [self._assign_coord, "los", radiance.data[key].dims[0]],
-                    modelled_wf,
-                )
-            else:
-                # Copy all of the extra variables
-                if key != "radiance":
-                    data[key] = radiance.data[key]
+            data = xr.Dataset(
+                {
+                    "radiance": ([self._assign_coord, "los"], modelled_radiance),
+                },
+                coords={
+                    self._assign_coord: self._assign_vals,
+                    "xyz": ["x", "y", "z"],
+                },
+            )
 
-        return radianceformat.RadianceGridded(data)
+            for key in list(radiance.data):
+                if key.startswith("wf"):
+                    stokes_applied_wf = radiance.data[key] @ xr.DataArray(
+                        mueller,
+                        dims=["stokes"],
+                        coords={"stokes": ["I", "Q", "U", "V"]},
+                    )
+
+                    modelled_wf = np.einsum(
+                        "ij,ljk->ikl",
+                        wavel_interp,
+                        stokes_applied_wf.to_numpy(),
+                        optimize=True,
+                    )
+
+                    data[key] = (
+                        [self._assign_coord, "los", radiance.data[key].dims[0]],
+                        modelled_wf,
+                    )
+                else:
+                    # Copy all of the extra variables
+                    if key != "radiance":
+                        data[key] = radiance.data[key]
+
+            result[k] = radianceformat.RadianceGridded(data)
+
+        return result
 
     def radiance_format(self) -> type[radianceformat.RadianceGridded]:
         return radianceformat.RadianceGridded

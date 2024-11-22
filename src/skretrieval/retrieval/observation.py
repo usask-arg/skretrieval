@@ -390,10 +390,10 @@ class SimulatedLimbObservation(SimulatedObservation):
         return {self._name: self._reference_longitude}
 
     def append_information_to_l1(self, l1: dict[RadianceGridded], **kwargs) -> None:
-        if self._name in l1:
-            l1[self._name].data.coords["tangent_altitude"] = (["los"], self._tan_alts)
-
-            l1[self._name].data = l1[self._name].data.set_xindex("tangent_altitude")
+        for name, v in l1.items():
+            if name.startswith(self._name):
+                v.data.coords["tangent_altitude"] = (["los"], self._tan_alts)
+                v.data = v.data.set_xindex("tangent_altitude")
 
     def _append_noise_to_l1(self, l1: dict[RadianceGridded]) -> None:
         if self._noise_fn is not None:

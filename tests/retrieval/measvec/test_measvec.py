@@ -57,7 +57,7 @@ def _construct_l1():
 
     inst_model = SpectrographOnlySpectral(wavel, [DeltaFunction() for _ in wavel])
 
-    l1 = inst_model.model_radiance(SASKTRANRadiance.from_sasktran2(output), None)
+    l1 = inst_model.model_radiance(SASKTRANRadiance.from_sasktran2(output), None)["I"]
 
     l1.data = l1.data.drop_vars(["wf_no2_vmr"])
     l1.data = l1.data.rename_vars({"wf_ozone_vmr": "wf"})

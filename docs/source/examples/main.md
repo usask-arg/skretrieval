@@ -10,6 +10,9 @@
 [Limb Scatter Aerosol Retrieval](limb_aerosol)
 : A limb scatter aerosol retrieval
 
+[Limb Scatter Polarized Aerosol Retrieval](limb_polarized_aerosol)
+: A limb scatter aerosol retrieval using polarized measurements and a spectrally varying albedo
+
 [A Synergistic Limb Scatter and Nadir Ozone Retrieval](synergy)
 : Combining multiple observations for synergistic retrievals
 
@@ -20,6 +23,7 @@
 nadir_ozone
 limb_ozone
 limb_aerosol
+limb_polarized_aerosol
 synergy
 
 ```
