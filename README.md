@@ -10,13 +10,6 @@ the [SASKTRAN Radiative Transfer Model](https://github.com/usask-arg/sasktran). 
 are being developed around [Version 2 of the SASKTRAN Model](https://github.com/usask-arg/sasktran2).
 
 ## Installation
-
-```
-conda install -c usask-arg -c conda-forge skretrieval
-```
-
-alternatively through `pip`,
-
 ```
 pip install skretrieval
 ```

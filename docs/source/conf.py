@@ -24,7 +24,7 @@ from importlib.metadata import version as get_version
 # -- Project information -----------------------------------------------------
 
 project = 'skretrieval'
-copyright = '2024, USask ARG'
+copyright = '2025, USask ARG'
 author = 'USask ARG'
 
 autodoc_docstring_signature = True
