@@ -1,5 +1,0 @@
-name: conda_build
-dependencies:
-  - python=3.11
-  - boa
-  - anaconda-client

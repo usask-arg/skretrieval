@@ -5,12 +5,10 @@ build:
   tools:
     python: "mambaforge-22.9"
 
-  jobs:
-    pre_build:
-      - pip install .
+  commands:
+    - mamba install -c conda-forge -c nodefaults pixi
+    - pixi install -e docs
+    - pixi run -e docs readthedocs
 
 sphinx:
    configuration: docs/source/conf.py
-
-conda:
-  environment: ci/conda-envs/doc_env.yml
