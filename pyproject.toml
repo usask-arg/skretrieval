@@ -69,7 +69,7 @@ show-tutorial = { cmd = "jupyter notebook", cwd = "notebooks/show/tutorial" }
 test = { cmd = "pytest tests/", cwd = "." }
 pre-commit = { cmd = "pre-commit run -a", cwd = "." }
 docs = { cmd = "sphinx-build -b html docs/source docs/build", cwd = "." }
-readthedocs = { cmd = "rm -rf $READTHEDOCS_OUTPUT/html && cp -r docs/build/ $READTHEDOCS_OUTPUT/html", depends_on = ["docs"] }
+readthedocs = { cmd = "rm -rf $READTHEDOCS_OUTPUT/html && cp -r docs/build/ $READTHEDOCS_OUTPUT/html", depends-on = ["docs"] }
 
 
 [tool.setuptools_scm]
