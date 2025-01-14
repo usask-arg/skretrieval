@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 import sasktran2 as sk

@@ -2,24 +2,16 @@
 (_installation)=
 # Installation
 
-The recommended way to install `skretrieval` is through `conda`
-
-    conda install -c conda-forge -c usask-arg skretrieval
-
-Wheels are also made available through `pip`
+`skretrieval` can be installed through
 
     pip install skretrieval
 
 
-# Nightly Builds
+# Tested Platforms
+The latest version of `skretrieval` is tested on the following platforms, although other versions may
+also work.
 
-The latest nightly version of skretrieval is made available through::
-
-    conda install -c usask-arg-nightly -c conda-forge skretrieval
-
-# Supported Platforms
-|   | macOS Intel | macOS Apple Silicon | Windows 64bit | manylinux x86_64 |
+|   | macOS Intel | macOS Apple Silicon | Windows 64bit | manylinux x86_64 | manylinux aarch64
 |---------------|----|-----|-----|-----|
-| CPython 3.10  | ✅ | ✅  | ✅  | ✅  |
-| CPython 3.11  | ✅ | ✅  | ✅  | ✅  |
-| CPython 3.12  | ✅ | ✅  | ✅  | ✅  |
+| CPython 3.11  | ✅ | ✅  | ✅  | ✅  | ✅  |
+| CPython 3.12  | ✅ | ✅  | ✅  | ✅  | ✅  |

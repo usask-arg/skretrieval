@@ -48,3 +48,6 @@ docs/source/api/generated/*
 .pytest_cache
 .pixi
 pixi.lock
+uv.lock
+.venv
+docs/jupyter_execute

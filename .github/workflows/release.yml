@@ -10,37 +10,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-upload-conda:
-    runs-on: ubuntu-latest
-
-    if: github.repository == 'usask-arg/skretrieval'
-    environment:
-      name: conda
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-          submodules: true
-
-      - name: Setup Conda build environment
-        uses: mamba-org/setup-micromamba@v1
-        with:
-          environment-file: ci/conda-envs/mamba-build.yml
-
-      - name: Build Conda package
-        shell: bash -el {0}
-        run: |
-          conda config --set anaconda_upload yes
-          conda mambabuild conda.recipe --output-folder pkgs/ --user usask-arg --token ${{ secrets.ANACONDA_TOKEN }} --no-test
-
-      - name: Save conda package
-        uses: actions/upload-artifact@v3
-        with:
-          name: skretrieval-conda
-          path: pkgs
-
   build_wheel:
     name: Build Wheel
     runs-on: ubuntu-latest
@@ -53,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v4
         name: Install Python
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
@@ -76,7 +45,7 @@ jobs:
           else
             echo "✅ Looks good"
           fi
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           name: releases
           path: dist
@@ -96,7 +65,7 @@ jobs:
         with:
           python-version: "3.x"
 
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: releases
           path: dist
