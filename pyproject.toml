@@ -42,8 +42,6 @@ numba = "*"
 xarray = "*"
 netcdf4 = "*"
 appdirs = "*"
-jupyter = "*"
-matplotlib = "*"
 pytest = ">=8.3.3,<9"
 pre-commit = "*"
 ruff = "*"
@@ -65,7 +63,6 @@ py311 = ["py311"]
 py312 = ["py312"]
 
 [tool.pixi.tasks]
-show-tutorial = { cmd = "jupyter notebook", cwd = "notebooks/show/tutorial" }
 test = { cmd = "pytest tests/", cwd = "." }
 pre-commit = { cmd = "pre-commit run -a", cwd = "." }
 docs = { cmd = "sphinx-build -b html docs/source docs/build", cwd = "." }
