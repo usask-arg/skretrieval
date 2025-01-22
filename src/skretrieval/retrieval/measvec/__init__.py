@@ -327,7 +327,7 @@ def subtract(measurement: Measurement, other: Measurement) -> Measurement:
             if sparse.issparse(measurement.Sy)
             else measurement.Sy
         )
-        + (other.Sy if sparse.issparse(other.Sy) else other.Sy),
+        + other.Sy,
     )
 
 
@@ -352,7 +352,7 @@ def add(measurement: Measurement, other: Measurement) -> Measurement:
             if sparse.issparse(measurement.Sy)
             else measurement.Sy
         )
-        + (other.Sy if sparse.issparse(other.Sy) else other.Sy),
+        + other.Sy,
     )
 
 
@@ -364,6 +364,7 @@ class Triplet(MeasurementVector):
         altitude_range: list[float],
         normalization_range: list[float],
         normalize=True,
+        log_space=True,
         **kwargs,
     ):
         """
@@ -394,15 +395,24 @@ class Triplet(MeasurementVector):
             t_vals = []
             for w, weight in zip(wavelength, weights):
                 # Get the useful wavelength data
-                wavel_data = log(
-                    select(
+                if log_space:
+                    wavel_data = log(
+                        select(
+                            nearest_selector(l1, wavelength=w),
+                            tangent_altitude=slice(
+                                res_altitude_range[0], res_altitude_range[1]
+                            ),
+                            **kwargs,
+                        )
+                    )
+                else:
+                    wavel_data = select(
                         nearest_selector(l1, wavelength=w),
                         tangent_altitude=slice(
                             res_altitude_range[0], res_altitude_range[1]
                         ),
                         **kwargs,
                     )
-                )
 
                 # And the normalization value
                 norm_vals = mean(
