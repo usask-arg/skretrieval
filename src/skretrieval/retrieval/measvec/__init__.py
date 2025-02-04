@@ -159,7 +159,9 @@ def concat(measurements: list[Measurement]) -> Measurement:
     return Measurement(
         y=np.concatenate([m.y for m in measurements]),
         K=np.vstack([m.K for m in measurements]),
-        Sy=sparse.block_diag([sparse.csc_matrix(m.Sy) for m in measurements], format="csc"),
+        Sy=sparse.block_diag(
+            [sparse.csc_matrix(m.Sy) for m in measurements], format="csc"
+        ),
     )
 
 
