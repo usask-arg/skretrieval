@@ -477,8 +477,8 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
 
     sv_ele.enabled = cfg.get("enabled", True)
 
-    if cfg.get("prior_state") is not None:
-        sv_ele.update_state(cfg["prior_state"])
+    if cfg.get("initial_guess") is not None:
+        sv_ele.update_state(cfg["initial_guess"])
 
     return sv_ele
 
@@ -504,9 +504,6 @@ def wavenumber_shift(
 
 @Retrieval.register_state("splines", "constant_los")
 def constant_los(self, name: str, native_alt_grid: np.array, cfg: dict):  # noqa: ARG001
-    # return MultiplicativeSplineOne(
-    #     1e7 / 7325, 1e7 / 7310, 2, 1, order=1, min_value=0.5, max_value=1.5
-    # )
     return MultiplicativeSplineOne(
         cfg["low_wavelength_nm"],
         cfg["high_wavelength_nm"],
