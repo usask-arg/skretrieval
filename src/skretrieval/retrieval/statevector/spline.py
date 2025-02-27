@@ -128,6 +128,110 @@ class MultiplicativeSpline(StateVectorElement):
         return np.ones_like(self.state())
 
 
+class MultiplicativeSplineOne(StateVectorElement):
+    def __init__(
+        self,
+        low_wavelength_nm: float,
+        high_wavelength_nm: float,
+        num_wv: int,
+        s: float,
+        order=3,
+        min_value=-100,
+        max_value=100,
+    ):
+        self._wv = np.linspace(
+            low_wavelength_nm, high_wavelength_nm, num_wv, endpoint=True
+        )
+        self._x = np.ones(len(self._wv))
+        self._low_wavelength_nm = low_wavelength_nm
+        self._high_wavelength_nm = high_wavelength_nm
+        self._s = s
+        self._order = order
+        self._min_value = min_value
+        self._max_value = max_value
+        super().__init__(True)
+
+    def state(self) -> np.array:
+        return self._x.flatten()
+
+    def lower_bound(self) -> np.array:
+        return np.ones_like(self._x.flatten()) * self._min_value
+
+    def upper_bound(self) -> np.array:
+        return np.ones_like(self._x.flatten()) * self._max_value
+
+    def update_state(self, x: np.array):
+        self._x = x.reshape(self._x.shape)
+
+    def inverse_apriori_covariance(self) -> np.ndarray:
+        return np.eye(len(self.state())) * 1e-5
+
+    def name(self) -> str:
+        return f"spline_{self._low_wavelength_nm}_{self._high_wavelength_nm}"
+
+    def propagate_wf(self, radiance: xr.Dataset) -> xr.Dataset:
+        # Calculate the derivative of the spline
+        spline_deriv = np.zeros((len(self._x), len(radiance["wavelength"])))
+
+        wv = radiance["wavelength"].to_numpy()
+        good = (wv > self._low_wavelength_nm) & (wv < self._high_wavelength_nm)
+
+        bx = copy(self._x)
+        base_spline = UnivariateSpline(self._wv, bx, s=self._s, k=self._order)
+        base_vals = base_spline(wv[good])
+
+        for j in range(len(bx)):
+            bx[j] += 1e-2
+            p_vals = UnivariateSpline(self._wv, bx, s=self._s, k=self._order)(wv[good])
+            bx[j] -= 1e-2
+
+            spline_deriv[j, good] = (p_vals - base_vals) / 1e-2
+
+        full_deriv = np.zeros(
+            (
+                spline_deriv.shape[0],
+                radiance["radiance"].shape[0],
+                radiance["radiance"].shape[1],
+                radiance["radiance"].shape[2],
+            )
+        )
+
+        for i in range(radiance["radiance"].to_numpy().shape[1]):
+            full_deriv[:, :, i, :] = (
+                spline_deriv[:, :, np.newaxis]
+                * radiance["radiance"].to_numpy()[:, i, :]
+            )
+
+        return xr.DataArray(
+            full_deriv.reshape(
+                (
+                    -1,
+                    radiance["radiance"].shape[0],
+                    radiance["radiance"].shape[1],
+                    radiance["radiance"].shape[2],
+                )
+            ),
+            dims=["x", "wavelength", "los", "stokes"],
+        )
+
+    def modify_input_radiance(self, radiance: xr.Dataset):
+        wv = radiance["wavelength"].to_numpy()
+        vals = np.ones(len(wv))
+        good = (wv > self._low_wavelength_nm) & (wv < self._high_wavelength_nm)
+
+        base_spline = UnivariateSpline(self._wv, self._x, s=self._s, k=self._order)
+        vals[good] = base_spline(wv[good])
+
+        for var in list(radiance):
+            if "wavelength" in radiance[var].dims:
+                radiance[var] *= xr.DataArray(vals, dims=["wavelength"])
+
+        return radiance
+
+    def apriori_state(self) -> np.array:
+        return np.ones_like(self.state())
+
+
 class AdditiveSpline(StateVectorElement):
     def __init__(
         self,
