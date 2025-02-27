@@ -33,7 +33,7 @@ class Measurement:
 
 
 class MeasurementVector:
-    def __init__(self, fn: Callable, apply_to_filter="*"):
+    def __init__(self, fn: Callable, apply_to_filter="*", sample_fn=None):
         """
         A class that represents a measurement vector. This is a callable object that can be used to
         transform L1 data to a measurement vector.
@@ -45,6 +45,7 @@ class MeasurementVector:
         apply_to_filter : str, optional
             Only L1 data matching the apply_to_filter will be affected by this measurement vector, by default "*"
         """
+        self._sample_fn = sample_fn
         self._fn = fn
         self._filter = apply_to_filter
         self._enabled = True
@@ -105,7 +106,9 @@ class MeasurementVector:
         -------
         dict[np.array]
         """
-        return obs_samples
+        if self._sample_fn is None:
+            return obs_samples
+        return self._sample_fn(obs_samples)
 
 
 def pre_process(l1: dict[RadianceGridded], n: int = 1) -> dict[RadianceGridded]:

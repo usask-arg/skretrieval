@@ -97,6 +97,16 @@ class StandardForwardModel(ForwardModel):
             self._state_vector.add_to_atmosphere(atmo[key])
             self._ancillary.add_to_atmosphere(atmo[key])
 
+            self._model_geometry[
+                key
+            ].refractive_index = sk.optical.refraction.ciddor_index_of_refraction(
+                atmo[key].temperature_k,
+                atmo[key].pressure_pa,
+                np.zeros_like(atmo[key].temperature_k),
+                450,
+                np.nanmean(atmo[key].wavelengths_nm),
+            )
+
         return atmo
 
     def _construct_engine(self):
@@ -183,7 +193,9 @@ class SpectrometerMixin:
         sample_wavelengths = {}
         for key in obs_samples:
             sample_wavelengths[key] = np.unique(
-                np.concatenate([d[key] for d in mv_required_samples.values()])
+                np.concatenate(
+                    [np.atleast_1d(d[key]) for d in mv_required_samples.values()]
+                )
             )
 
         return sample_wavelengths

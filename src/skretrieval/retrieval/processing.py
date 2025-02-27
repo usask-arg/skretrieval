@@ -10,6 +10,8 @@ import skretrieval.retrieval.prior as prior
 from skretrieval.retrieval.rodgers import Rodgers
 from skretrieval.retrieval.scipy import SciPyMinimizer, SciPyMinimizerGrad
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
+from skretrieval.retrieval.statevector.shifts import WavenumberShift
+from skretrieval.retrieval.statevector.spline import MultiplicativeSplineOne
 
 from .ancillary import Ancillary, US76Ancillary
 from .forwardmodel import ForwardModelHandler, IdealViewingSpectrograph
@@ -26,6 +28,7 @@ class Retrieval:
         "absorbers": {},
         "aerosols": {},
         "splines": {},
+        "shifts": {},
         "surface": {},
         "other": {},
     }
@@ -255,6 +258,13 @@ class Retrieval:
         msg = f"aerosol {name} does not have a default implementation"
         raise ValueError(msg)
 
+    @staticmethod
+    def _default_state_shift(
+        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+    ):
+        msg = f"shift {name} does not have a default implementation"
+        raise ValueError(msg)
+
     def _construct_state_vector(self):
         native_alt_grid = self._state_kwargs["altitude_grid"]
 
@@ -283,8 +293,14 @@ class Retrieval:
                 name, self._default_state_spline
             )(self, name, native_alt_grid, spline)
 
+        shifts = {}
+        for name, shift in self._state_kwargs.get("shifts", {}).items():
+            shifts[name] = self._state_fns["shifts"].get(
+                shift["type"], self._default_state_shift
+            )(self, name, native_alt_grid, shift)
+
         return AltitudeNativeStateVector(
-            native_alt_grid, **absorbers, **surface, **aerosols, **splines
+            native_alt_grid, **absorbers, **surface, **aerosols, **splines, **shifts
         )
 
     def _construct_ancillary(self):
@@ -406,15 +422,18 @@ def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa:
 
 @Retrieval.register_state("aerosols", "extinction_profile")
 def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
-    aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
+    if cfg.get("prior_state") is not None and False:
+        ext = cfg["prior_state"]
+    else:
+        aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
 
-    ext = copy(aero_const.extinction_per_m)
+        ext = copy(aero_const.extinction_per_m)
 
     low_boundary = np.nonzero(ext)[0][0]
 
     ext[:low_boundary] = ext[low_boundary]
 
-    ext[ext == 0] = 1e-15
+    ext[ext < 1e-15] = 1e-15
 
     scale_factor = cfg.get("scale_factor", 1)
 
@@ -458,4 +477,39 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
 
     sv_ele.enabled = cfg.get("enabled", True)
 
+    if cfg.get("initial_guess") is not None:
+        sv_ele.update_state(cfg["initial_guess"])
+
     return sv_ele
+
+
+@Retrieval.register_state("shifts", "wavenumber_shift")
+def wavenumber_shift(
+    self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG001
+):
+    sv_ele = WavenumberShift(
+        cfg["num_los"],
+        numerical_delta=cfg.get("numerical_delta", 1e-5),
+        tikh_factor=cfg.get("tikh_factor", 1e4),
+        prior_factor=cfg.get("prior_factor", 0),
+        min_shift=cfg.get("min_shift", -0.1),
+        max_shift=cfg.get("max_shift", 0.1),
+        apply_to_measurement=cfg.get("apply_to_measurement"),
+    )
+
+    sv_ele.enabled = cfg.get("enabled", True)
+
+    return sv_ele
+
+
+@Retrieval.register_state("splines", "constant_los")
+def constant_los(self, name: str, native_alt_grid: np.array, cfg: dict):  # noqa: ARG001
+    return MultiplicativeSplineOne(
+        cfg["low_wavelength_nm"],
+        cfg["high_wavelength_nm"],
+        cfg["num_wv"],
+        cfg.get("s", 1),
+        order=cfg["order"],
+        min_value=cfg.get("min_value", 0.5),
+        max_value=cfg.get("max_value", 1.5),
+    )
