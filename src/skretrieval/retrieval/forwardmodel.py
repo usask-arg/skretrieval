@@ -131,9 +131,9 @@ class StandardForwardModel(ForwardModel):
             if isinstance(model_result, dict):
                 if len(model_result) == 1:
                     l1[key] = next(iter(model_result.values()))
-
-                for k, v in model_result.items():
-                    l1[f"{key}_{k}"] = v
+                else:
+                    for k, v in model_result.items():
+                        l1[f"{key}_{k}"] = v
             else:
                 l1[key] = model_result
 
