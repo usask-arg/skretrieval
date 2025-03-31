@@ -33,7 +33,7 @@ jobs:
           submodules: true
 
       - name: Setup environment
-        uses: prefix-dev/setup-pixi@v0.8.3
+        uses: prefix-dev/setup-pixi@v0.8.4
         with:
           environments: ${{ matrix.environment }}
 
