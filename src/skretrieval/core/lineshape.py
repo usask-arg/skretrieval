@@ -209,9 +209,7 @@ def fasterf1(x):
 
     t = 1 / (1 + p * np.abs(x))
 
-    return (
-        1 - (a1 * t + a2 * t**2 + a3 * t**3) * np.exp(-np.abs(x) ** 2)
-    ) * np.sign(x)
+    return (1 - (a1 * t + a2 * t**2 + a3 * t**3) * np.exp(-np.abs(x) ** 2)) * np.sign(x)
 
 
 @vectorize("f8(f8)", nopython=True)
