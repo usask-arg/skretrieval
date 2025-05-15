@@ -197,7 +197,9 @@ class Retrieval:
     ):
         const = sk2.climatology.mipas.constituent(species_name, optical)
 
-        new_vmr = np.interp(alt_grid, const._altitudes_m, const.vmr)
+        altitudes_m = const._constituent.altitudes_m
+
+        new_vmr = np.interp(alt_grid, altitudes_m, const.vmr)
 
         new_const = sk2.constituent.VMRAltitudeAbsorber(
             optical, alt_grid, new_vmr, out_of_bounds_mode="extend"
