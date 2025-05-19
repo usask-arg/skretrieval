@@ -241,9 +241,9 @@ class TwoDimTarget(RetrievalTarget):
             mult_factor[~np.isfinite(mult_factor)] = 1
 
             if self._max_change_factor is not None:
-                mult_factor[
-                    mult_factor > self._max_change_factor
-                ] = self._max_change_factor
+                mult_factor[mult_factor > self._max_change_factor] = (
+                    self._max_change_factor
+                )
                 mult_factor[mult_factor < 1 / self._max_change_factor] = (
                     1 / self._max_change_factor
                 )
