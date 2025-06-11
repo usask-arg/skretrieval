@@ -224,11 +224,13 @@ class Retrieval:
         return self._optical_property_fns[species_name]()
 
     @staticmethod
-    def _default_state_absorber(self, name: str, native_alt_grid: np.array, cfg: dict):
-        const = self._const_from_mipas(
+    def _default_state_absorber(
+        processor: Retrieval, name: str, native_alt_grid: np.array, cfg: dict
+    ):
+        const = processor._const_from_mipas(
             native_alt_grid,
             name,
-            self._optical_property(name),
+            processor._optical_property(name),
             tikh=cfg["tikh_factor"],
             prior_infl=cfg["prior_influence"],
             log_space=cfg["log_space"],
@@ -241,28 +243,40 @@ class Retrieval:
 
     @staticmethod
     def _default_state_surface(
-        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+        _processor: Retrieval,
+        name: str,
+        _native_alt_grid: np.array,
+        cfg: dict,  # noqa: ARG004
     ):
         msg = f"Surface {name} does not have a default implementation"
         raise ValueError(msg)
 
     @staticmethod
     def _default_state_spline(
-        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+        _processor: Retrieval,
+        name: str,
+        _native_alt_grid: np.array,
+        cfg: dict,  # noqa: ARG004
     ):
         msg = f"Spline {name} does not have a default implementation"
         raise ValueError(msg)
 
     @staticmethod
     def _default_state_aerosol(
-        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+        _processor: Retrieval,
+        name: str,
+        _native_alt_grid: np.array,
+        cfg: dict,  # noqa: ARG004
     ):
         msg = f"aerosol {name} does not have a default implementation"
         raise ValueError(msg)
 
     @staticmethod
     def _default_state_shift(
-        self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG004
+        _processor: Retrieval,
+        name: str,
+        _native_alt_grid: np.array,
+        cfg: dict,  # noqa: ARG004
     ):
         msg = f"shift {name} does not have a default implementation"
         raise ValueError(msg)
