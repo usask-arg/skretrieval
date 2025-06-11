@@ -206,7 +206,7 @@ ret = skr.Retrieval(
                 },
                 "prior": {
                     "extinction_per_m": {"type": "testing"},
-                    "median_radius": {"type": "constant", "value": 80}
+                    "median_radius": {"type": "constant", "value": 80.0}
                 }
             },
         },

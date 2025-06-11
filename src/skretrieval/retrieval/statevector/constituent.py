@@ -228,9 +228,9 @@ class StateVectorElementConstituent(
                     getattr(self._constituent, property_name), dims=["altitude"]
                 )
 
-                ds[
-                    self._constituent_name + "_" + property_name + "_prior"
-                ] = xr.DataArray(self._prior[property_name].state, dims=["altitude"])
+                ds[self._constituent_name + "_" + property_name + "_prior"] = (
+                    xr.DataArray(self._prior[property_name].state, dims=["altitude"])
+                )
 
                 if "covariance" in kwargs:
                     if self._log_space:

@@ -72,8 +72,7 @@ class EngineHRTwoDim:
         output = {}
         all_segment_radiances = []
         all_angleidx = []
-        i = 0
-        for segment in self._geo_segments:
+        for i, segment in enumerate(self._geo_segments):
             options = copy(self._common_options)
             new_geometry = self._combined_geometry(segment)
             geodetic = sk.Geodetic()
@@ -101,7 +100,6 @@ class EngineHRTwoDim:
             )
 
             logging.debug("   Done")
-            i += 1
             all_segment_radiances.append(segment_radiance.drop("wf_brdf"))
             all_angleidx.append(angleidx)
 

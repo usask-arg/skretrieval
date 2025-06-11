@@ -133,7 +133,7 @@ class AerosolGaussianPressure(StateVectorProfile):
         gauss *= self._background_numberdensity
 
         # Convert profile to have the correct vertical aod
-        integral = np.trapz(gauss, self._clim_alts)
+        integral = np.trapezoid(gauss, self._clim_alts)
 
         # xs in cm2, integral is over m to we have to divide by 100
         nd = gauss / integral * aod / self._xs / 100

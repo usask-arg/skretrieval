@@ -97,14 +97,14 @@ class StandardForwardModel(ForwardModel):
             self._state_vector.add_to_atmosphere(atmo[key])
             self._ancillary.add_to_atmosphere(atmo[key])
 
-            self._model_geometry[
-                key
-            ].refractive_index = sk.optical.refraction.ciddor_index_of_refraction(
-                atmo[key].temperature_k,
-                atmo[key].pressure_pa,
-                np.zeros_like(atmo[key].temperature_k),
-                450,
-                np.nanmean(atmo[key].wavelengths_nm),
+            self._model_geometry[key].refractive_index = (
+                sk.optical.refraction.ciddor_index_of_refraction(
+                    atmo[key].temperature_k,
+                    atmo[key].pressure_pa,
+                    np.zeros_like(atmo[key].temperature_k),
+                    450,
+                    np.nanmean(atmo[key].wavelengths_nm),
+                )
             )
 
         return atmo
@@ -211,9 +211,11 @@ class SpectrometerMixin:
         for k, v in sample_wavelengths.items():
             if self._spectral_native_coordinate == "wavelength_nm":
                 bounds = [
-                    self._lineshape_fn(w).bounds(center=0)
-                    if self._lineshape_fn(w).zero_centered()
-                    else self._lineshape_fn(w).bounds(center=-w)
+                    (
+                        self._lineshape_fn(w).bounds(center=0)
+                        if self._lineshape_fn(w).zero_centered()
+                        else self._lineshape_fn(w).bounds(center=-w)
+                    )
                     for w in v
                 ]
                 ws[k] = np.unique(
@@ -232,9 +234,11 @@ class SpectrometerMixin:
                 )
             else:
                 bounds = [
-                    self._lineshape_fn(w).bounds(center=0)
-                    if self._lineshape_fn(w).zero_centered()
-                    else self._lineshape_fn(w).bounds(center=-1e7 / w)
+                    (
+                        self._lineshape_fn(w).bounds(center=0)
+                        if self._lineshape_fn(w).zero_centered()
+                        else self._lineshape_fn(w).bounds(center=-1e7 / w)
+                    )
                     for w in v
                 ]
                 ws[k] = (
@@ -271,9 +275,11 @@ class SpectrometerMixin:
                 sample_wavelengths[key],
                 [self._lineshape_fn(x) for x in sample_wavelengths[key]],
                 spectral_native_coordinate=self._spectral_native_coordinate,
-                assign_coord="wavelength"
-                if self._spectral_native_coordinate == "wavelength_nm"
-                else "wavenumber",
+                assign_coord=(
+                    "wavelength"
+                    if self._spectral_native_coordinate == "wavelength_nm"
+                    else "wavenumber"
+                ),
                 stokes_sensitivity=self._stokes_sensitivities,
             )
 

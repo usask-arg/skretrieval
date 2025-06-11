@@ -593,9 +593,7 @@ class OrbitalPlaneGrid:
         """
         if angle_idx < self._numextend:
             return True
-        if angle_idx >= self.numhoriz - self._numextend:
-            return True
-        return False
+        return angle_idx >= self.numhoriz - self._numextend
 
     @property
     def numextended(self):
