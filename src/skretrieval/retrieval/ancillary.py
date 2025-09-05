@@ -31,6 +31,7 @@ class GenericAncillary(Ancillary):
         pressure_pa: np.array,
         temperature_k: np.array,
         rayleigh_scattering=True,
+        **kwargs,
     ) -> None:
         """
         A generic ancillary object that can be used to add temperature and pressure profiles to the atmosphere
@@ -51,6 +52,7 @@ class GenericAncillary(Ancillary):
         self._pressure_pa = pressure_pa
         self._temperature_k = temperature_k
         self._rayleigh_scattering = rayleigh_scattering
+        self._extra_constituents = kwargs.get("constituents", {})
 
     def add_to_atmosphere(self, atmo: sk2.Atmosphere):
         if self._rayleigh_scattering:
@@ -62,6 +64,8 @@ class GenericAncillary(Ancillary):
         atmo.temperature_k = np.interp(
             atmo.model_geometry.altitudes(), self._altitudes_m, self._temperature_k
         )
+        for name, const in self._extra_constituents.items():
+            atmo[name] = const
 
 
 class US76Ancillary(GenericAncillary):
