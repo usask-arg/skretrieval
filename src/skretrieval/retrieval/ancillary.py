@@ -31,7 +31,7 @@ class GenericAncillary(Ancillary):
         pressure_pa: np.array,
         temperature_k: np.array,
         rayleigh_scattering=True,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         A generic ancillary object that can be used to add temperature and pressure profiles to the atmosphere
