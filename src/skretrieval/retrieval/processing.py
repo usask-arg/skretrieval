@@ -529,3 +529,62 @@ def constant_los(self, name: str, native_alt_grid: np.array, cfg: dict):  # noqa
         min_value=cfg.get("min_value", 0.5),
         max_value=cfg.get("max_value", 1.5),
     )
+
+
+@Retrieval.register_state("aerosols", "gaussian_extinction_profile")
+def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
+    # if cfg.get("prior_state") is not None and False:
+    #     ext = cfg["prior_state"]
+    # else:
+    #     aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
+
+    #     ext = copy(aero_const.extinction_per_m)
+
+    scale_factor = cfg.get("scale_factor", 1)
+
+    secondary_kwargs = {
+        name: np.ones_like(native_alt_grid) * cfg["prior"][name]["value"]
+        for name in cfg["prior"]
+        if name not in ["vertical_optical_depth", "width_fwhm_m", "height_m"]
+    }
+
+    db = self._optical_property(name)
+
+    aero_const = sk2.constituent.GaussianHeightExtinction(
+        db,
+        cfg["prior"]["height_m"]["value"],
+        cfg["prior"]["width_fwhm_m"]["value"],
+        cfg["prior"]["vertical_optical_depth"]["value"],
+        cfg.get("nominal_wavelength", 745),
+        native_alt_grid,
+        "extend",
+        **secondary_kwargs,
+    )
+
+    sv_ele = StateVectorElementConstituent(
+        aero_const,
+        f"{name}",
+        cfg["retrieved_quantities"].keys(),
+        min_value={
+            name: val["min_value"] for name, val in cfg["retrieved_quantities"].items()
+        },
+        max_value={
+            name: val["max_value"] for name, val in cfg["retrieved_quantities"].items()
+        },
+        prior={
+            name: val["tikh_factor"]
+            * prior.VerticalTikhonov(
+                1, prior_state=secondary_kwargs.get(name, np.atleast_1d(cfg["prior"][name]["value"] * scale_factor))
+            )
+            + val["prior_influence"] * prior.ConstantDiagonalPrior()
+            for name, val in cfg["retrieved_quantities"].items()
+        },
+        log_space=False,
+    )
+
+    sv_ele.enabled = cfg.get("enabled", True)
+
+    if cfg.get("initial_guess") is not None:
+        sv_ele.update_state(cfg["initial_guess"])
+
+    return sv_ele

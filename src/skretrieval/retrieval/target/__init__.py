@@ -38,8 +38,9 @@ class LogisticBoundingMixin:
 
         internal_x[no_map] = x[no_map]
 
+        eps = np.finfo(float).eps
         internal_x[both_bounds] = np.log(
-            (x[both_bounds] - lb[both_bounds]) / (ub[both_bounds] - x[both_bounds])
+            (x[both_bounds] - lb[both_bounds]) / (ub[both_bounds] - x[both_bounds] + eps)
         )
 
         return internal_x
