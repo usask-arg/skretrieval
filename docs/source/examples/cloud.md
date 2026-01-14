@@ -2,8 +2,11 @@
 file_format: mystnb
 ---
 
-(_example_limb_scatter_aerosol)=
-# Cloud
+(_example_limb_scatter_cloud)=
+# Limb Scatter Cloud Retrieval
+
+Here we demonstrate the retrieval of cloud height, width, and optical depth.
+Similar to other examples we must provide information on the optical parameters.
 
 ```{code-cell}
 import numpy as np
@@ -11,23 +14,28 @@ import sasktran2 as sk
 import skretrieval as skr
 ```
 
+In this example we use a Mie distribution with a fixed particle size to
+define our cloud optical properties.
+
 ```{code-cell}
 @skr.Retrieval.register_optical_property("cloud")
 def cloud_optical_prop(*args, **kwargs):
     refrac = sk.mie.refractive.H2SO4()
     dist = sk.mie.distribution.LogNormalDistribution().freeze(
-        mode_width=1.6
+        mode_width=1.6, median_radius=80.0,
     )
 
     db = sk.database.MieDatabase(
         dist,
         refrac,
         np.array([469.0, 750.0]),
-        median_radius = np.arange(10, 200, 10.0)
     )
 
     return db
 ```
+
+We configure the state vector for the three parameters (`vertical_optical_depth`, `width_fwhm_m`, `height_m`)
+required by the Gaussian extinction profile constituent.
 
 ```{code-cell}
 # Measurement tangent altitudes
@@ -55,7 +63,13 @@ obs = skr.observation.SimulatedLimbObservation(
     reference_longitude=20,
     tangent_altitudes=tan_alts,
     sample_wavelengths=wavel,
-    state_adjustment_factors={"cloud": 1.5},  # Simulate with 1.5x the prior
+    state_adjustment_factors={
+        "cloud": {
+            "vertical_optical_depth": 1.5,
+            "width_fwhm_m": 1.5,
+            "height_m": 1.5,
+        }
+    },
 )
 
 # Construct our measurement vectors
@@ -82,7 +96,7 @@ ret = skr.Retrieval(
                         "prior_influence": 1e0,
                         "tikh_factor": 1e-2,
                         "min_value": 1e-9,
-                        "max_value": 1
+                        "max_value": 10
                     },
                     "width_fwhm_m": {
                         "prior_influence": 1e0,
@@ -96,18 +110,11 @@ ret = skr.Retrieval(
                         "min_value": 0,
                         "max_value": 25000
                     },
-                    "median_radius": {
-                        "prior_influence": 1e0,
-                        "tikh_factor": 1e-4,
-                        "min_value": 10,
-                        "max_value": 900
-                    },
                 },
                 "prior": {
-                    "vertical_optical_depth": {"type": "constant", "value": 0.01},
+                    "vertical_optical_depth": {"type": "constant", "value": 0.05},
                     "width_fwhm_m": {"type": "constant", "value": 5000},
-                    "height_m": {"type": "constant", "value": 20000},
-                    "median_radius": {"type": "constant", "value": 80.0},
+                    "height_m": {"type": "constant", "value": 15000},
                 }
             },
         },
@@ -117,6 +124,6 @@ ret = skr.Retrieval(
 # Do the retrieval
 results = ret.retrieve()
 
-# Plot the results
-# skr.plotting.plot_state(results, "cloud_height_m", show=True)
+# Display the results
+print(results["state"])
 ```

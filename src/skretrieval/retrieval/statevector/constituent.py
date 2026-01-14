@@ -222,15 +222,17 @@ class StateVectorElementConstituent(
         else:
             start = 0
             for property_name in self._property_names:
-                end = start + len(np.atleast_1d(getattr(self._constituent, property_name)))
+                end = start + len(
+                    np.atleast_1d(getattr(self._constituent, property_name))
+                )
 
                 if end - start == 1:  # scalar property
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
                         float(getattr(self._constituent, property_name))
                     )
 
-                    ds[self._constituent_name + "_" + property_name + "_prior"] = (
-                        float(self._prior[property_name].state)
+                    ds[self._constituent_name + "_" + property_name + "_prior"] = float(
+                        self._prior[property_name].state
                     )
 
                     if "covariance" in kwargs:
@@ -240,8 +242,10 @@ class StateVectorElementConstituent(
                                 + "_"
                                 + property_name
                                 + "_1sigma_error"
-                            ] = float(np.sqrt(np.diag(kwargs["covariance"])[start:end])
-                                * getattr(self._constituent, property_name))
+                            ] = float(
+                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
+                                * getattr(self._constituent, property_name)
+                            )
                         else:
                             ds[
                                 self._constituent_name
@@ -263,7 +267,9 @@ class StateVectorElementConstituent(
                     )
 
                     ds[self._constituent_name + "_" + property_name + "_prior"] = (
-                        xr.DataArray(self._prior[property_name].state, dims=["altitude"])
+                        xr.DataArray(
+                            self._prior[property_name].state, dims=["altitude"]
+                        )
                     )
 
                     if "covariance" in kwargs:

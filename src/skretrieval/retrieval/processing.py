@@ -574,7 +574,10 @@ def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg:
         prior={
             name: val["tikh_factor"]
             * prior.VerticalTikhonov(
-                1, prior_state=secondary_kwargs.get(name, np.atleast_1d(cfg["prior"][name]["value"] * scale_factor))
+                1,
+                prior_state=secondary_kwargs.get(
+                    name, np.atleast_1d(cfg["prior"][name]["value"] * scale_factor)
+                ),
             )
             + val["prior_influence"] * prior.ConstantDiagonalPrior()
             for name, val in cfg["retrieved_quantities"].items()
