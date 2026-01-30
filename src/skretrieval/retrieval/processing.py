@@ -533,13 +533,6 @@ def constant_los(self, name: str, native_alt_grid: np.array, cfg: dict):  # noqa
 
 @Retrieval.register_state("aerosols", "gaussian_extinction_profile")
 def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
-    # if cfg.get("prior_state") is not None and False:
-    #     ext = cfg["prior_state"]
-    # else:
-    #     aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
-
-    #     ext = copy(aero_const.extinction_per_m)
-
     scale_factor = cfg.get("scale_factor", 1)
 
     secondary_kwargs = {
