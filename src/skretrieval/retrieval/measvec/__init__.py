@@ -361,6 +361,44 @@ def add(measurement: Measurement, other: Measurement) -> Measurement:
     )
 
 
+def wavelength_mean(
+    l1: dict[RadianceGridded], filter: str = "*", **kwargs
+) -> Measurement:
+    """
+    Takes the mean over a wavelength band
+
+
+    Parameters
+    ----------
+    l1 : dict[RadianceGridded]
+    filter : str, optional
+         by default "*"
+
+    Returns
+    -------
+    Measurement
+    """
+    measurements = []
+
+    for key, val in l1.items():
+        if fnmatch.fnmatch(key, filter):
+            selected = val.data.sel(**kwargs).mean(dim="wavelength")
+
+            measurements.append(
+                Measurement(
+                    y=selected["radiance"].to_numpy().flatten(),
+                    K=selected["wf"].to_numpy().reshape((-1, len(selected["x"]))),
+                    Sy=sparse.csc_matrix(
+                        sparse.diags(
+                            selected["radiance_noise"].to_numpy().flatten() ** 2, 0
+                        )
+                    ),
+                )
+            )
+
+    return concat(measurements)
+
+
 class Triplet(MeasurementVector):
     def __init__(
         self,
@@ -470,4 +508,142 @@ class Triplet(MeasurementVector):
                 all_wv[key] = np.array(
                     [val[np.abs(val - w).argmin()] for w in self._wavelength]
                 )
+        return all_wv
+
+
+class IntegratedLine(MeasurementVector):
+    def __init__(
+        self,
+        central_wavelength: float,
+        integration_range: float,
+        baseline_range: float,
+        **kwargs,
+    ):
+        self._left_boundary = central_wavelength - integration_range - baseline_range
+        self._right_boundary = central_wavelength + integration_range + baseline_range
+
+        def y(l1, ctxt, **kwargs):  # noqa: ARG001
+
+            ta_s = slice(70000, 110000)
+
+            integration_vals = wavelength_mean(
+                l1,
+                wavelength=slice(
+                    central_wavelength - integration_range,
+                    central_wavelength + integration_range,
+                ),
+                tangent_altitude=ta_s,
+            )
+            baseline_left = wavelength_mean(
+                l1,
+                wavelength=slice(
+                    central_wavelength - integration_range - baseline_range,
+                    central_wavelength - integration_range,
+                ),
+                tangent_altitude=ta_s,
+            )
+            baseline_right = wavelength_mean(
+                l1,
+                wavelength=slice(
+                    central_wavelength + integration_range,
+                    central_wavelength + integration_range + baseline_range,
+                ),
+                tangent_altitude=ta_s,
+            )
+
+            baseline = multiply(add(baseline_left, baseline_right), 0.5)
+            return subtract(integration_vals, baseline)
+
+        super().__init__(y, **kwargs)
+
+    def required_sample_wavelengths(
+        self, obs_samples: dict[np.array]
+    ) -> dict[np.array]:
+        """
+        Determines which sample wavelengths are required for this measurement vector
+
+        Default is to just return back all of the observation wavelengths
+
+        Parameters
+        ----------
+        obs_samples : dict[np.array]
+
+        Returns
+        -------
+        dict[np.array]
+        """
+        all_wv = {}
+
+        for key, val in obs_samples.items():
+            all_wv[key] = []
+            if fnmatch.fnmatch(key, self.filter):
+                all_wv[key] = val[
+                    (val > self._left_boundary) & (val < self._right_boundary)
+                ]
+        return all_wv
+
+
+class WavelengthAltitude(MeasurementVector):
+    def __init__(
+        self,
+        wavelength_range: list[float],
+        altitude_range: list[float],
+        **kwargs,
+    ):
+        """
+        A measurement vector that selects all measurements inside wavelength and
+        tangent altitude ranges.
+
+        Both ranges can be set through the retrieval context by prefixing values
+        with '$'.
+
+        Parameters
+        ----------
+        wavelength_range : list[float]
+            Wavelength range to select as [min, max]
+        altitude_range : list[float]
+            Tangent altitude range to select as [min, max]
+        """
+        self._wavelength_range = wavelength_range
+
+        def y(l1, ctxt, **kwargs):
+            res_wavelength_range = [_resolve_value(v, ctxt) for v in wavelength_range]
+            res_altitude_range = [_resolve_value(v, ctxt) for v in altitude_range]
+
+            return select(
+                l1,
+                wavelength=slice(res_wavelength_range[0], res_wavelength_range[1]),
+                tangent_altitude=slice(res_altitude_range[0], res_altitude_range[1]),
+                **kwargs,
+            )
+
+        super().__init__(y, **kwargs)
+
+    def required_sample_wavelengths(
+        self, obs_samples: dict[np.array]
+    ) -> dict[np.array]:
+        """
+        Determines which sample wavelengths are required for this measurement vector.
+
+        Parameters
+        ----------
+        obs_samples : dict[np.array]
+
+        Returns
+        -------
+        dict[np.array]
+        """
+        all_wv = {}
+
+        # If range values are context-dependent, we cannot resolve static sampling here.
+        if any(isinstance(v, str) for v in self._wavelength_range):
+            return obs_samples
+
+        left = self._wavelength_range[0]
+        right = self._wavelength_range[1]
+
+        for key, val in obs_samples.items():
+            all_wv[key] = []
+            if fnmatch.fnmatch(key, self.filter):
+                all_wv[key] = val[(val >= left) & (val <= right)]
         return all_wv
