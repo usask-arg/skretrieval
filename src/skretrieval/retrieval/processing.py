@@ -11,7 +11,10 @@ from skretrieval.retrieval.rodgers import Rodgers
 from skretrieval.retrieval.scipy import SciPyMinimizer, SciPyMinimizerGrad
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
 from skretrieval.retrieval.statevector.shifts import WavenumberShift
-from skretrieval.retrieval.statevector.spline import MultiplicativeSplineOne
+from skretrieval.retrieval.statevector.spline import (
+    MultiplicativeSpline,
+    MultiplicativeSplineOne,
+)
 
 from .ancillary import Ancillary, US76Ancillary
 from .forwardmodel import ForwardModelHandler, IdealViewingSpectrograph
@@ -315,8 +318,20 @@ class Retrieval:
                 shift["type"], self._default_state_shift
             )(self, name, native_alt_grid, shift)
 
+        others = {}
+        for name, other in self._state_kwargs.get("other", {}).items():
+            others[name] = self._state_fns["other"].get(
+                other["type"], self._default_state_shift
+            )(self, name, native_alt_grid, other)
+
         return AltitudeNativeStateVector(
-            native_alt_grid, **absorbers, **surface, **aerosols, **splines, **shifts
+            native_alt_grid,
+            **absorbers,
+            **surface,
+            **aerosols,
+            **splines,
+            **shifts,
+            **others,
         )
 
     def _construct_ancillary(self):
@@ -528,4 +543,48 @@ def constant_los(self, name: str, native_alt_grid: np.array, cfg: dict):  # noqa
         order=cfg["order"],
         min_value=cfg.get("min_value", 0.5),
         max_value=cfg.get("max_value", 1.5),
+    )
+
+
+@Retrieval.register_state("splines", "multiplicative")
+def multiplicative(
+    self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG001
+):
+    return MultiplicativeSpline(
+        cfg["num_los"],
+        cfg["low_wavelength_nm"],
+        cfg["high_wavelength_nm"],
+        cfg["num_wv"],
+        cfg.get("s", 1),
+        order=cfg["order"],
+        min_value=cfg.get("min_value", 0.5),
+        max_value=cfg.get("max_value", 1.5),
+    )
+
+
+@Retrieval.register_state("other", "volume_emission_rate")
+def volume_emission_rate(
+    self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG001
+):
+    emission_wavelength = cfg["wavelength_nm"]
+
+    initial_ver = np.ones_like(native_alt_grid) * 1e-12
+
+    # p = prior.VerticalTikhonov(cfg["tikhonov_factor"], prior_state = copy(initial_ver)) + 1e-10 * prior.ConstantDiagonalPrior()
+    p = 1e-12 * prior.ConstantDiagonalPrior() + cfg[
+        "tikhonov_factor"
+    ] * prior.VerticalTikhonov(1, prior_state=copy(initial_ver))
+
+    const = sk2.constituent.MonochromaticVolumeEmissionRate(
+        native_alt_grid, initial_ver, emission_wavelength
+    )
+
+    return StateVectorElementConstituent(
+        const,
+        name,
+        ["ver"],
+        prior={"ver": p},
+        log_space=False,
+        min_value={"ver": -1e-9},
+        max_value={"ver": 1e-9},
     )

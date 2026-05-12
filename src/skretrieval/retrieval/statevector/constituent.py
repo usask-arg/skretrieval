@@ -165,7 +165,8 @@ class StateVectorElementConstituent(
             property_length = len(current)
             if self._log_space:
                 sv = np.exp(x[start : start + property_length])
-                sv[np.isnan(sv)] = self._max_value[property_name]
+                if np.sum(np.isnan(sv)) > 0:
+                    sv[np.isnan(sv)] = self._max_value[property_name]
             else:
                 sv = x[start : start + property_length]
             if property_name in self._min_value:

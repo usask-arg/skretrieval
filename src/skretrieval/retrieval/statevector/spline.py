@@ -35,6 +35,7 @@ class MultiplicativeSpline(StateVectorElement):
         self._order = order
         self._min_value = min_value
         self._max_value = max_value
+        self._enabled = True
 
     def state(self) -> np.array:
         return self._x.flatten()
@@ -53,7 +54,7 @@ class MultiplicativeSpline(StateVectorElement):
         gamma = two_dim_horizontal_second_deriv(  # noqa: F841
             self._x.shape[0], self._x.shape[1], factor=0.01
         )
-        return np.eye(len(self.state())) * 1e2
+        return np.eye(len(self.state())) * 1e-10
 
     def name(self) -> str:
         return f"spline_{self._low_wavelength_nm}_{self._high_wavelength_nm}"

@@ -75,3 +75,30 @@ def test_selector():
     l1 = mv.pre_process({"measurement": l1})
 
     mv.select(l1, wavelength=500, tangent_altitude=slice(10000, 40000))
+
+
+def test_wavelength_altitude():
+    l1 = _construct_l1()
+    l1 = mv.pre_process({"measurement": l1})
+
+    wavelength_range = [500.0, 520.0]
+    altitude_range = [10000.0, 40000.0]
+
+    measvec = mv.WavelengthAltitude(
+        wavelength_range=wavelength_range,
+        altitude_range=altitude_range,
+    )
+
+    meas_from_class = measvec.apply(l1)
+    meas_from_select = mv.select(
+        l1,
+        wavelength=slice(wavelength_range[0], wavelength_range[1]),
+        tangent_altitude=slice(altitude_range[0], altitude_range[1]),
+    )
+
+    np.testing.assert_allclose(meas_from_class.y, meas_from_select.y)
+    np.testing.assert_allclose(meas_from_class.K, meas_from_select.K)
+    np.testing.assert_allclose(
+        meas_from_class.Sy.toarray(),
+        meas_from_select.Sy.toarray(),
+    )
