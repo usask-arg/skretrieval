@@ -599,7 +599,8 @@ def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg:
         sv_ele.update_state(cfg["initial_guess"])
 
     return sv_ele
-  
+
+
 @Retrieval.register_state("splines", "multiplicative")
 def multiplicative(
     self, name: str, native_alt_grid: np.array, cfg: dict  # noqa: ARG001
@@ -614,6 +615,7 @@ def multiplicative(
         min_value=cfg.get("min_value", 0.5),
         max_value=cfg.get("max_value", 1.5),
     )
+
 
 @Retrieval.register_state("other", "volume_emission_rate")
 def volume_emission_rate(
