@@ -325,9 +325,6 @@ class StateVectorElementConstituent(
                             + property_name
                             + "_averaging_kernel"
                         ] = xr.DataArray(
-                            np.sqrt(np.diag(kwargs["covariance"])[start:end])
-                            / self._scale_factor,
-                            dims=["altitude"],
                             kwargs["averaging_kernel"][start:end, start:end],
                             dims=["altitude", "altitude_2"],
                         )
