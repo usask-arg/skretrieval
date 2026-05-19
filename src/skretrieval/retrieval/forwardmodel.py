@@ -363,6 +363,7 @@ class IdealViewingSpectrograph(
             lineshape_fn=kwargs.get("lineshape_fn", lambda _: DeltaFunction()),
             model_res_cminv=kwargs.get("model_res_cminv", 0.02),
             model_res_nm=kwargs.get("model_res_nm", 0.02),
+            round_decimal=kwargs.get("round_decimal", 2),
             spectral_native_coordinate=kwargs.get(
                 "spectral_native_coordinate", "wavelength_nm"
             ),

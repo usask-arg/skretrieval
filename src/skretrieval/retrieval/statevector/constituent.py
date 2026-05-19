@@ -23,6 +23,7 @@ class StateVectorElementConstituent(
         prior: dict[BasePrior] | None = None,
         log_space=False,
         enabled=True,
+        scale_factor: float = 1.0,
     ):
         """
         A state vector element that is a sasktran2.constituent
@@ -43,6 +44,10 @@ class StateVectorElementConstituent(
             Prior objects for each property name, by default {}
         log_space : bool, optional
             If true then the state elements will be rescaled to logarithmic space, by default False
+        scale_factor : float, optional
+            Constant multiplicative factor between constituent properties and retrieval state.
+            A state value of 1 corresponds to a constituent property value of 1 / scale_factor,
+            by default 1.0
         """
         if prior is None:
             prior = {}
@@ -50,7 +55,12 @@ class StateVectorElementConstituent(
             max_value = {}
         if min_value is None:
             min_value = {}
+        if scale_factor <= 0:
+            msg = "scale_factor must be positive"
+            raise ValueError(msg)
+
         self._log_space = log_space
+        self._scale_factor = float(scale_factor)
         self._constituent = constituent
         self._property_names = property_names
         self._constituent_name = constituent_name
@@ -74,7 +84,7 @@ class StateVectorElementConstituent(
         data = []
 
         for property_name in self._property_names:
-            data.append(getattr(self._constituent, property_name))
+            data.append(getattr(self._constituent, property_name) * self._scale_factor)
 
         if self._log_space:
             return np.log(np.hstack(data))
@@ -87,7 +97,7 @@ class StateVectorElementConstituent(
 
             bound = self._min_value.get(property_name, -np.inf)
 
-            data.append(np.ones(len(x)) * bound)
+            data.append(np.ones(len(x)) * bound * self._scale_factor)
 
         if self._log_space:
             return np.log(np.hstack(data))
@@ -100,7 +110,7 @@ class StateVectorElementConstituent(
 
             bound = self._max_value.get(property_name, np.inf)
 
-            data.append(np.ones(len(x)) * bound)
+            data.append(np.ones(len(x)) * bound * self._scale_factor)
 
         if self._log_space:
             return np.log(np.hstack(data))
@@ -155,6 +165,8 @@ class StateVectorElementConstituent(
             if self._log_space:
                 x = getattr(self._constituent, property_name)
                 wfs[-1].values *= x[:, np.newaxis, np.newaxis, np.newaxis]
+            else:
+                wfs[-1].values = wfs[-1].values / self._scale_factor
 
         return xr.concat(wfs, dim="x")
 
@@ -164,11 +176,11 @@ class StateVectorElementConstituent(
             current = getattr(self._constituent, property_name)
             property_length = len(np.atleast_1d(current))
             if self._log_space:
-                sv = np.exp(x[start : start + property_length])
+                sv = np.exp(x[start : start + property_length]) / self._scale_factor
                 if np.sum(np.isnan(sv)) > 0:
                     sv[np.isnan(sv)] = self._max_value[property_name]
             else:
-                sv = x[start : start + property_length]
+                sv = x[start : start + property_length] / self._scale_factor
             if property_name in self._min_value:
                 sv[sv < self._min_value[property_name]] = self._min_value[property_name]
             if property_name in self._max_value:
@@ -227,6 +239,16 @@ class StateVectorElementConstituent(
                     np.atleast_1d(getattr(self._constituent, property_name))
                 )
 
+                if self._log_space:
+                    prior_values = (
+                        np.exp(self._prior[property_name].state) / self._scale_factor
+                    )
+                else:
+                    prior_values = self._prior[property_name].state / self._scale_factor
+
+                ds[self._constituent_name + "_" + property_name + "_prior"] = (
+                    xr.DataArray(prior_values, dims=["altitude"])
+                )
                 if end - start == 1:  # scalar property
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
                         float(getattr(self._constituent, property_name))
