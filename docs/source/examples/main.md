@@ -16,6 +16,9 @@
 [A Synergistic Limb Scatter and Nadir Ozone Retrieval](synergy)
 : Combining multiple observations for synergistic retrievals
 
+[Limb Scatter Cloud Retrieval](cloud)
+: A retrieval of cloud properties
+
 ```{toctree}
 :maxdepth: 4
 :hidden:
@@ -25,5 +28,6 @@ limb_ozone
 limb_aerosol
 limb_polarized_aerosol
 synergy
+cloud
 
 ```

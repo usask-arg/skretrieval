@@ -72,7 +72,7 @@ class StateVectorElementConstituent(
         start = 0
         for property_name in self._property_names:
             if property_name in self._prior:
-                n = len(getattr(self._constituent, property_name))
+                n = len(np.atleast_1d(getattr(self._constituent, property_name)))
                 self._prior[property_name].init(self, slice(start, start + n))
                 start += n
             else:
@@ -174,7 +174,7 @@ class StateVectorElementConstituent(
         start = 0
         for property_name in self._property_names:
             current = getattr(self._constituent, property_name)
-            property_length = len(current)
+            property_length = len(np.atleast_1d(current))
             if self._log_space:
                 sv = np.exp(x[start : start + property_length]) / self._scale_factor
                 if np.sum(np.isnan(sv)) > 0:
@@ -235,10 +235,8 @@ class StateVectorElementConstituent(
         else:
             start = 0
             for property_name in self._property_names:
-                end = start + len(getattr(self._constituent, property_name))
-
-                ds[self._constituent_name + "_" + property_name] = xr.DataArray(
-                    getattr(self._constituent, property_name), dims=["altitude"]
+                end = start + len(
+                    np.atleast_1d(getattr(self._constituent, property_name))
                 )
 
                 if self._log_space:
@@ -251,41 +249,88 @@ class StateVectorElementConstituent(
                 ds[self._constituent_name + "_" + property_name + "_prior"] = (
                     xr.DataArray(prior_values, dims=["altitude"])
                 )
+                if end - start == 1:  # scalar property
+                    ds[self._constituent_name + "_" + property_name] = xr.DataArray(
+                        float(getattr(self._constituent, property_name))
+                    )
 
-                if "covariance" in kwargs:
-                    if self._log_space:
+                    ds[self._constituent_name + "_" + property_name + "_prior"] = float(
+                        self._prior[property_name].state
+                    )
+
+                    if "covariance" in kwargs:
+                        if self._log_space:
+                            ds[
+                                self._constituent_name
+                                + "_"
+                                + property_name
+                                + "_1sigma_error"
+                            ] = float(
+                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
+                                * getattr(self._constituent, property_name)
+                            )
+                        else:
+                            ds[
+                                self._constituent_name
+                                + "_"
+                                + property_name
+                                + "_1sigma_error"
+                            ] = float(np.sqrt(np.diag(kwargs["covariance"])[start:end]))
+
+                    if "averaging_kernel" in kwargs:
                         ds[
                             self._constituent_name
                             + "_"
                             + property_name
-                            + "_1sigma_error"
-                        ] = xr.DataArray(
-                            np.sqrt(np.diag(kwargs["covariance"])[start:end])
-                            * getattr(self._constituent, property_name),
-                            dims=["altitude"],
+                            + "_averaging_kernel"
+                        ] = float(kwargs["averaging_kernel"][start:end, start:end])
+                else:
+                    ds[self._constituent_name + "_" + property_name] = xr.DataArray(
+                        getattr(self._constituent, property_name), dims=["altitude"]
+                    )
+
+                    ds[self._constituent_name + "_" + property_name + "_prior"] = (
+                        xr.DataArray(
+                            self._prior[property_name].state, dims=["altitude"]
                         )
-                    else:
+                    )
+
+                    if "covariance" in kwargs:
+                        if self._log_space:
+                            ds[
+                                self._constituent_name
+                                + "_"
+                                + property_name
+                                + "_1sigma_error"
+                            ] = xr.DataArray(
+                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
+                                * getattr(self._constituent, property_name),
+                                dims=["altitude"],
+                            )
+                        else:
+                            ds[
+                                self._constituent_name
+                                + "_"
+                                + property_name
+                                + "_1sigma_error"
+                            ] = xr.DataArray(
+                                np.sqrt(np.diag(kwargs["covariance"])[start:end]),
+                                dims=["altitude"],
+                            )
+
+                    if "averaging_kernel" in kwargs:
                         ds[
                             self._constituent_name
                             + "_"
                             + property_name
-                            + "_1sigma_error"
+                            + "_averaging_kernel"
                         ] = xr.DataArray(
                             np.sqrt(np.diag(kwargs["covariance"])[start:end])
                             / self._scale_factor,
                             dims=["altitude"],
+                            kwargs["averaging_kernel"][start:end, start:end],
+                            dims=["altitude", "altitude_2"],
                         )
-
-                if "averaging_kernel" in kwargs:
-                    ds[
-                        self._constituent_name
-                        + "_"
-                        + property_name
-                        + "_averaging_kernel"
-                    ] = xr.DataArray(
-                        kwargs["averaging_kernel"][start:end, start:end],
-                        dims=["altitude", "altitude_2"],
-                    )
 
                 start = end
 
