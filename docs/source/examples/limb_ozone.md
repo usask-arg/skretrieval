@@ -57,7 +57,9 @@ obs = skr.observation.SimulatedLimbObservation(
     reference_longitude=20,
     tangent_altitudes=tan_alts,
     sample_wavelengths=wavel,
-    state_adjustment_factors={"o3": 1.5},  # Simulate with 1.5x the ozone of the prior
+    state_adjustment_factors={
+        "o3": {"vmr": {"scale": 1.5}}
+    },  # Simulate with 1.5x the ozone of the prior
 )
 
 # Construct our measurement vectors

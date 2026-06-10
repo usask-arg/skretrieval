@@ -10,6 +10,10 @@ from skretrieval.retrieval.prior import BasePrior
 from . import StateVectorElement
 
 
+def _as_scalar(value) -> float:
+    return float(np.asarray(value).reshape(-1)[0])
+
+
 class StateVectorElementConstituent(
     StateVectorElement, sk2.constituent.base.Constituent
 ):
@@ -251,11 +255,11 @@ class StateVectorElementConstituent(
                 )
                 if end - start == 1:  # scalar property
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
-                        float(getattr(self._constituent, property_name))
+                        _as_scalar(getattr(self._constituent, property_name))
                     )
 
-                    ds[self._constituent_name + "_" + property_name + "_prior"] = float(
-                        self._prior[property_name].state
+                    ds[self._constituent_name + "_" + property_name + "_prior"] = (
+                        _as_scalar(self._prior[property_name].state)
                     )
 
                     if "covariance" in kwargs:
@@ -265,7 +269,7 @@ class StateVectorElementConstituent(
                                 + "_"
                                 + property_name
                                 + "_1sigma_error"
-                            ] = float(
+                            ] = _as_scalar(
                                 np.sqrt(np.diag(kwargs["covariance"])[start:end])
                                 * getattr(self._constituent, property_name)
                             )
@@ -275,7 +279,9 @@ class StateVectorElementConstituent(
                                 + "_"
                                 + property_name
                                 + "_1sigma_error"
-                            ] = float(np.sqrt(np.diag(kwargs["covariance"])[start:end]))
+                            ] = _as_scalar(
+                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
+                            )
 
                     if "averaging_kernel" in kwargs:
                         ds[
@@ -283,7 +289,7 @@ class StateVectorElementConstituent(
                             + "_"
                             + property_name
                             + "_averaging_kernel"
-                        ] = float(kwargs["averaging_kernel"][start:end, start:end])
+                        ] = _as_scalar(kwargs["averaging_kernel"][start:end, start:end])
                 else:
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
                         getattr(self._constituent, property_name), dims=["altitude"]

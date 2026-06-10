@@ -2,7 +2,7 @@
 file_format: mystnb
 ---
 
-(_example_limb_scatter_aerosol)=
+(_example_limb_scatter_polarized_aerosol)=
 # Limb Scatter Polarized Aerosol Retrieval
 
 Here we set up a limb scatter aerosol retrieval similar to the previous example, except in this
@@ -55,7 +55,10 @@ obs = skr.observation.SimulatedLimbObservation(
     tangent_altitudes=tan_alts,
     sample_wavelengths=sample_wavel,
     state_adjustment_factors={
-        "stratospheric_aerosol": {"extinction_per_m": 1.5, "median_radius": aerosol_scale}
+        "stratospheric_aerosol": {
+            "extinction_per_m": {"scale": 1.5},
+            "median_radius": {"scale": aerosol_scale},
+        }
     },  # Simulate with 1.5x the prior
 )
 
@@ -102,7 +105,7 @@ ret = skr.Retrieval(
                 "log_space": False,
                 "wavelengths": sample_wavel,
                 "initial_value": 0.3,
-                "out_bounds_mode": "extend",
+                "out_of_bounds_mode": "extend",
             },
         },
     },
@@ -175,7 +178,7 @@ ret = skr.Retrieval(
                 "log_space": False,
                 "wavelengths": sample_wavel,
                 "initial_value": 0.3,
-                "out_bounds_mode": "extend",
+                "out_of_bounds_mode": "extend",
             },
         },
     },
