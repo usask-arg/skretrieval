@@ -18,7 +18,10 @@ observation = skr.observation.SimulatedNadirObservation(
     reference_latitude=20,
     reference_longitude=0,
     sample_wavelengths=np.arange(280, 350, 0.5),
-    state_adjustment_factors={"o3": 1.5, "lambertian_albedo": 2},
+    state_adjustment_factors={
+        "o3": {"vmr": {"scale": 1.5}},
+        "lambertian_albedo": {"albedo": {"scale": 2}},
+    },
 )
 
 

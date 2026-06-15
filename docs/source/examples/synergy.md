@@ -55,7 +55,7 @@ wavel = np.unique(np.concatenate([triplets[t]["wavelength"] for t in triplets]))
     float
 )
 
-state_adjustment_factors = {"o3": 1.5}
+state_adjustment_factors = {"o3": {"vmr": {"scale": 1.5}}}
 
 # Set up a simulated observation with our tangent altitudes, wavelengths, and use 1.5x the initial guess for ozone
 obs_limb = skr.observation.SimulatedLimbObservation(
@@ -138,7 +138,7 @@ ret = skr.Retrieval(
     obs_nadir,
     measvec=meas_vec_nadir,
     minimizer="rodgers",
-    target_kwargs={"rescale_state_space": True},
+    target_kwargs={"rescale_state_space": False},
     state_kwargs=state_kwargs,
 )
 
@@ -152,7 +152,7 @@ ret = skr.Retrieval(
     obs_limb,
     measvec=meas_vec_limb,
     minimizer="rodgers",
-    target_kwargs={"rescale_state_space": True},
+    target_kwargs={"rescale_state_space": False},
     state_kwargs=state_kwargs,
 )
 
@@ -172,7 +172,7 @@ ret = skr.Retrieval(
     obs_limb + obs_nadir,
     measvec={**meas_vec_limb, **meas_vec_nadir},
     minimizer="rodgers",
-    target_kwargs={"rescale_state_space": True},
+    target_kwargs={"rescale_state_space": False},
     state_kwargs=state_kwargs,
 )
 

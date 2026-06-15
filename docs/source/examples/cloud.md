@@ -65,9 +65,9 @@ obs = skr.observation.SimulatedLimbObservation(
     sample_wavelengths=wavel,
     state_adjustment_factors={
         "cloud": {
-            "vertical_optical_depth": 1.5,
-            "width_fwhm_m": 1.5,
-            "height_m": 1.5,
+            "vertical_optical_depth": {"scale": 1.5},
+            "width_fwhm_m": {"scale": 1.5},
+            "height_m": {"scale": 1.5},
         }
     },
 )

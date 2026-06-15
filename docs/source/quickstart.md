@@ -23,7 +23,9 @@ observation = skr.observation.SimulatedNadirObservation(cos_sza=0.6,
                                                         reference_latitude=20,
                                                         reference_longitude=0,
                                                         sample_wavelengths=np.arange(280, 800, 0.5),
-                                                        state_adjustment_factors={"o3": 1.5})
+                                                        state_adjustment_factors={
+                                                            "o3": {"vmr": {"scale": 1.5}}
+                                                        })
 ```
 
 In this case we have created a special kind of observation, a "Simulated Observation", which means that we are going to use
