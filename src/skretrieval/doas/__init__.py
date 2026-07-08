@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 import sasktran2 as sk
 import xarray as xr
@@ -147,6 +149,244 @@ def _temperature_cross_section_components(
     return result, variance_ratio
 
 
+def _extract_constituent_profile(
+    atmo,
+    absorber_name: str,
+) -> tuple[str, np.ndarray]:
+    if absorber_name not in atmo:
+        msg = (
+            f"Absorber '{absorber_name}' is not present in atmosphere; "
+            "cannot build radiative-transfer basis"
+        )
+        raise ValueError(msg)
+
+    constituent = atmo[absorber_name]
+    if hasattr(constituent, "vmr"):
+        return "vmr", np.asarray(constituent.vmr, dtype=float).copy()
+    if hasattr(constituent, "number_density"):
+        return (
+            "number_density",
+            np.asarray(constituent.number_density, dtype=float).copy(),
+        )
+
+    msg = (
+        f"Absorber '{absorber_name}' does not expose vmr or number_density; "
+        "cannot build radiative-transfer basis"
+    )
+    raise ValueError(msg)
+
+
+def _set_constituent_profile(
+    atmo,
+    absorber_name: str,
+    profile_kind: str,
+    values: np.ndarray,
+) -> None:
+    if profile_kind == "vmr":
+        atmo[absorber_name].vmr[:] = values
+        return
+    if profile_kind == "number_density":
+        atmo[absorber_name].number_density[:] = values
+        return
+
+    msg = f"Unsupported constituent profile kind '{profile_kind}'"
+    raise ValueError(msg)
+
+
+def _mean_spectrum_from_radiance(
+    radiance: xr.DataArray | xr.Dataset,
+    num_wavel: int,
+) -> np.ndarray:
+    rad = _measurement_radiance(radiance)
+    values = np.asarray(rad.to_numpy(), dtype=float)
+
+    if values.ndim == 1:
+        spectrum = values
+    else:
+        wavelength_axes = [
+            idx for idx, size in enumerate(values.shape) if size == num_wavel
+        ]
+        if not wavelength_axes:
+            msg = "Unable to identify wavelength axis in radiance output"
+            raise ValueError(msg)
+
+        wavelength_axis = wavelength_axes[-1]
+        if wavelength_axis != values.ndim - 1:
+            values = np.moveaxis(values, wavelength_axis, -1)
+
+        reshaped = values.reshape(-1, values.shape[-1])
+        finite_rows = np.all(np.isfinite(reshaped), axis=1)
+        reshaped = reshaped[finite_rows]
+        if reshaped.size == 0:
+            msg = "Radiance output does not contain finite samples"
+            raise ValueError(msg)
+
+        spectrum = np.nanmean(reshaped, axis=0)
+
+    if spectrum.shape[-1] != num_wavel:
+        msg = "Radiance spectrum wavelength grid does not match atmosphere grid"
+        raise ValueError(msg)
+
+    return np.asarray(spectrum, dtype=float)
+
+
+def _extract_species_wf_array(
+    radiance: xr.DataArray | xr.Dataset,
+    species_name: str,
+) -> np.ndarray | None:
+    if not isinstance(radiance, xr.Dataset):
+        return None
+
+    species_key = species_name.lower()
+
+    # Prefer explicit species WF variables when available, e.g.
+    # wf_o3, wf_o3_vmr, wf_o3_number_density.
+    wf_variable_candidates = [
+        name
+        for name in radiance.data_vars
+        if name.lower().startswith("wf_") and species_key in name.lower()
+    ]
+    if wf_variable_candidates:
+        wf_arrays = [
+            np.asarray(radiance[name].to_numpy(), dtype=float)
+            for name in wf_variable_candidates
+        ]
+        if len(wf_arrays) == 1:
+            return wf_arrays[0]
+
+        # If multiple channels exist for the same species, average them so we
+        # still provide one stable predictor.
+        stacked = np.stack(wf_arrays, axis=0)
+        return np.nanmean(stacked, axis=0)
+
+    if "wf" not in radiance:
+        return None
+
+    wf = radiance["wf"]
+    if "x" not in wf.dims:
+        return None
+
+    x_coord = np.asarray(wf.coords["x"].to_numpy())
+    matches = np.array([species_key in str(value).lower() for value in x_coord])
+    if not np.any(matches):
+        return None
+
+    selected = wf.isel(x=np.where(matches)[0])
+    return np.asarray(selected.to_numpy(), dtype=float)
+
+
+def _wf_to_mean_spectrum(
+    wf_values: np.ndarray,
+    num_wavel: int,
+) -> np.ndarray:
+    values = np.asarray(wf_values, dtype=float)
+    if values.ndim == 1:
+        if values.shape[0] != num_wavel:
+            msg = "Weighting function spectrum wavelength size mismatch"
+            raise ValueError(msg)
+        return values
+
+    wavelength_axes = [
+        idx for idx, size in enumerate(values.shape) if size == num_wavel
+    ]
+    if not wavelength_axes:
+        msg = "Unable to identify wavelength axis in weighting function output"
+        raise ValueError(msg)
+
+    wavelength_axis = wavelength_axes[-1]
+    if wavelength_axis != values.ndim - 1:
+        values = np.moveaxis(values, wavelength_axis, -1)
+
+    reshaped = values.reshape(-1, values.shape[-1])
+    finite_rows = np.all(np.isfinite(reshaped), axis=1)
+    reshaped = reshaped[finite_rows]
+    if reshaped.size == 0:
+        msg = "Weighting function output does not contain finite samples"
+        raise ValueError(msg)
+
+    return np.nanmean(reshaped, axis=0)
+
+
+def _species_log_radiance_derivative_component(
+    radiance: xr.DataArray | xr.Dataset,
+    species_name: str,
+    num_wavel: int,
+    min_radiance: float = 1e-30,
+) -> np.ndarray | None:
+    wf_values = _extract_species_wf_array(radiance, species_name)
+    if wf_values is None:
+        return None
+
+    d_i = _wf_to_mean_spectrum(wf_values, num_wavel)
+    i_mean = _mean_spectrum_from_radiance(radiance, num_wavel)
+    safe_i = np.maximum(i_mean, min_radiance)
+    return np.asarray(d_i / safe_i, dtype=float)
+
+
+def _rt_cross_section_components(
+    absorber_name: str,
+    atmo,
+    engine,
+    temperatures_k: list[float] | np.ndarray,
+    min_radiance: float = 1e-30,
+) -> tuple[np.ndarray, np.ndarray]:
+    temps = np.atleast_1d(np.asarray(temperatures_k, dtype=float))
+    if temps.size == 0:
+        msg = "At least one temperature must be provided for absorber components"
+        raise ValueError(msg)
+
+    original_temperature = np.asarray(atmo.temperature_k, dtype=float).copy()
+    profile_kind, original_profile = _extract_constituent_profile(atmo, absorber_name)
+    num_wavel = int(atmo.num_wavel)
+    components: list[np.ndarray] = []
+
+    try:
+        for temp in temps:
+            atmo.temperature_k = np.full_like(
+                original_temperature,
+                float(temp),
+                dtype=float,
+            )
+
+            _set_constituent_profile(
+                atmo,
+                absorber_name,
+                profile_kind,
+                np.zeros_like(original_profile),
+            )
+            without_species = _mean_spectrum_from_radiance(
+                engine.calculate_radiance(atmo),
+                num_wavel,
+            )
+
+            _set_constituent_profile(
+                atmo,
+                absorber_name,
+                profile_kind,
+                original_profile,
+            )
+            with_species = _mean_spectrum_from_radiance(
+                engine.calculate_radiance(atmo),
+                num_wavel,
+            )
+
+            safe_without = np.maximum(without_species, min_radiance)
+            safe_with = np.maximum(with_species, min_radiance)
+            components.append(np.log(safe_without) - np.log(safe_with))
+    finally:
+        atmo.temperature_k = original_temperature
+        _set_constituent_profile(
+            atmo,
+            absorber_name,
+            profile_kind,
+            original_profile,
+        )
+
+    result = np.vstack(components)
+    variance_ratio = np.ones(result.shape[0], dtype=float) / result.shape[0]
+    return result, variance_ratio
+
+
 def _convolve_template(
     calc_wavel: np.ndarray,
     template: np.ndarray,
@@ -174,6 +414,106 @@ def _convolve_template(
     return convolved
 
 
+def _manual_predictor_to_components(
+    predictor_name: str,
+    predictor,
+    calc_wavel: np.ndarray,
+) -> np.ndarray:
+    calc_wavel_arr = np.asarray(calc_wavel, dtype=float)
+
+    predictor_wavel = None
+    predictor_values = None
+
+    if isinstance(predictor, xr.DataArray):
+        predictor_values = np.asarray(predictor.to_numpy(), dtype=float)
+        if "wavelength" in predictor.coords:
+            predictor_wavel = np.asarray(
+                predictor.coords["wavelength"].to_numpy(),
+                dtype=float,
+            )
+    elif isinstance(predictor, dict):
+        if "values" not in predictor:
+            msg = (
+                f"manual predictor '{predictor_name}' dict must contain a "
+                "'values' entry"
+            )
+            raise ValueError(msg)
+        predictor_values = np.asarray(predictor["values"], dtype=float)
+        if "wavelength" in predictor:
+            predictor_wavel = np.asarray(predictor["wavelength"], dtype=float)
+    elif isinstance(predictor, tuple) and len(predictor) == 2:
+        predictor_wavel = np.asarray(predictor[0], dtype=float)
+        predictor_values = np.asarray(predictor[1], dtype=float)
+    else:
+        predictor_values = np.asarray(predictor, dtype=float)
+
+    if predictor_values is None:
+        msg = f"manual predictor '{predictor_name}' could not be parsed"
+        raise ValueError(msg)
+
+    if predictor_values.ndim == 1:
+        predictor_values = predictor_values[np.newaxis, :]
+    elif predictor_values.ndim > 2:
+        msg = (
+            f"manual predictor '{predictor_name}' must be 1D or 2D "
+            "(components, wavelength)"
+        )
+        raise ValueError(msg)
+
+    if predictor_wavel is None:
+        if predictor_values.shape[-1] != calc_wavel_arr.size:
+            msg = (
+                f"manual predictor '{predictor_name}' does not provide "
+                "wavelengths and its length does not match calc grid"
+            )
+            raise ValueError(msg)
+        return predictor_values
+
+    predictor_wavel = np.asarray(predictor_wavel, dtype=float).reshape(-1)
+    if predictor_wavel.size != predictor_values.shape[-1]:
+        msg = (
+            f"manual predictor '{predictor_name}' wavelength/value size mismatch "
+            f"({predictor_wavel.size} vs {predictor_values.shape[-1]})"
+        )
+        raise ValueError(msg)
+
+    valid = np.isfinite(predictor_wavel)
+    if not np.any(valid):
+        msg = f"manual predictor '{predictor_name}' has no finite wavelengths"
+        raise ValueError(msg)
+
+    predictor_wavel = predictor_wavel[valid]
+    predictor_values = predictor_values[:, valid]
+
+    order = np.argsort(predictor_wavel)
+    predictor_wavel = predictor_wavel[order]
+    predictor_values = predictor_values[:, order]
+
+    unique_wavel, unique_idx = np.unique(predictor_wavel, return_index=True)
+    predictor_wavel = unique_wavel
+    predictor_values = predictor_values[:, unique_idx]
+
+    if predictor_wavel.size < 2:
+        msg = (
+            f"manual predictor '{predictor_name}' must have at least two unique "
+            "wavelengths"
+        )
+        raise ValueError(msg)
+
+    return np.vstack(
+        [
+            np.interp(
+                calc_wavel_arr,
+                predictor_wavel,
+                np.nan_to_num(component, nan=0.0),
+                left=np.nan_to_num(component[0], nan=0.0),
+                right=np.nan_to_num(component[-1], nan=0.0),
+            )
+            for component in predictor_values
+        ]
+    )
+
+
 def _design_matrix(
     wavelengths: np.ndarray,
     calc_wavel: np.ndarray,
@@ -184,6 +524,8 @@ def _design_matrix(
     stretch: float,
     fwhm_zero: float,
     fwhm_slope: float,
+    manual_predictor_offsets: Mapping[str, float] | None = None,
+    nonlinear_orders: dict[str, tuple[int, ...]] | None = None,
     residual_basis: np.ndarray | None = None,
     tilt_basis: np.ndarray | None = None,
 ) -> tuple[np.ndarray, dict[str, np.ndarray], np.ndarray, np.ndarray]:
@@ -221,6 +563,28 @@ def _design_matrix(
         start += count
     convolved_irrad = convolved_all[start]
 
+    # Manual predictor wavelength offsets are global (shared across LOS).
+    for name, offset_nm in (manual_predictor_offsets or {}).items():
+        if name not in convolved_xs:
+            continue
+
+        shift_nm = float(offset_nm)
+        if abs(shift_nm) < 1e-12:
+            continue
+
+        convolved_xs[name] = np.vstack(
+            [
+                np.interp(
+                    transformed_wavel - shift_nm,
+                    transformed_wavel,
+                    component,
+                    left=component[0],
+                    right=component[-1],
+                )
+                for component in np.asarray(convolved_xs[name], dtype=float)
+            ]
+        )
+
     def _standardize_column(column: np.ndarray) -> np.ndarray:
         col = np.asarray(column, dtype=float)
         finite = np.isfinite(col)
@@ -239,6 +603,11 @@ def _design_matrix(
         basis_columns.extend(
             _standardize_column(component) for component in convolved_xs[name]
         )
+        for order in (nonlinear_orders or {}).get(name, ()):
+            basis_columns.extend(
+                _standardize_column(component**order)
+                for component in convolved_xs[name]
+            )
     basis_columns.append(_standardize_column(convolved_irrad))
     basis_columns.extend(normalized_coord**order for order in range(poly_order + 1))
     if residual_basis is not None:
@@ -334,7 +703,13 @@ class DOASFitter:
         *,
         optical: dict[str, object] | None = None,
         num_pca: dict[str, int] | None = None,
-        absorber_temperatures: dict[str, float | list[float]] | None = None,
+        absorber_basis_method: str | dict[str, str] = "optical",
+        absorber_cross_section_predictors: dict[str, bool] | None = None,
+        absorber_derivative_predictors: dict[str, bool] | None = None,
+        absorber_temperatures: dict[str, float | list[float] | str] | None = None,
+        absorber_nonlinear_orders: dict[str, list[int]] | None = None,
+        manual_predictors: Mapping[str, object] | None = None,
+        cos_sza: np.ndarray | xr.DataArray | None = None,
         radiance_filter: list[float] | np.ndarray | None = None,
         filter: list[float] | np.ndarray | None = None,
         poly_order: int = 3,
@@ -361,7 +736,7 @@ class DOASFitter:
             "oclo": 1,
             "SO2": 1,
         }
-        default_absorber_temperatures: dict[str, float | list[float]] = {
+        default_absorber_temperatures: dict[str, float | list[float] | str] = {
             "bro": 228.0,
             "o3": [203.0, 223.0, 243.0],
             "no2": 220.0,
@@ -372,17 +747,126 @@ class DOASFitter:
         if absorber_temperatures is not None:
             default_absorber_temperatures.update(absorber_temperatures)
         self._absorber_temperatures = default_absorber_temperatures
+
+        if isinstance(absorber_basis_method, str):
+            self._absorber_basis_method = dict.fromkeys(
+                self._optical,
+                absorber_basis_method,
+            )
+        else:
+            self._absorber_basis_method = {
+                name: absorber_basis_method.get(name, "optical")
+                for name in self._optical
+            }
+
+        if absorber_cross_section_predictors is None:
+            self._absorber_cross_section_predictors = dict.fromkeys(self._optical, True)
+        else:
+            self._absorber_cross_section_predictors = {
+                name: bool(absorber_cross_section_predictors.get(name, True))
+                for name in self._optical
+            }
+
+        if absorber_derivative_predictors is None:
+            self._absorber_derivative_predictors = dict.fromkeys(self._optical, False)
+        else:
+            self._absorber_derivative_predictors = {
+                name: bool(absorber_derivative_predictors.get(name, False))
+                for name in self._optical
+            }
+
+        self._absorber_derivative_component_count: dict[str, int] = dict.fromkeys(
+            self._optical, 0
+        )
+
+        self._absorber_nonlinear_orders: dict[str, tuple[int, ...]] = {}
+        if absorber_nonlinear_orders is not None:
+            for name, orders in absorber_nonlinear_orders.items():
+                if name not in self._optical:
+                    msg = f"Unknown absorber '{name}' in absorber_nonlinear_orders"
+                    raise ValueError(msg)
+
+                valid_orders = []
+                for order in orders:
+                    if int(order) < 2:
+                        msg = (
+                            "absorber_nonlinear_orders entries must be >= 2 "
+                            "(e.g., [2, 3])"
+                        )
+                        raise ValueError(msg)
+                    valid_orders.append(int(order))
+
+                unique_sorted = tuple(sorted(set(valid_orders)))
+                if unique_sorted:
+                    self._absorber_nonlinear_orders[name] = unique_sorted
+
+        self._xs_by_sample: dict[str, np.ndarray] = {}
+        self._manual_predictors: dict[str, object] = dict(manual_predictors or {})
+        self._manual_predictor_names = tuple(self._manual_predictors)
+        self._manual_predictor_param_index = {
+            name: 4 + idx for idx, name in enumerate(self._manual_predictor_names)
+        }
+        self._manual_predictor_offsets: dict[str, float] = dict.fromkeys(
+            self._manual_predictor_names, 0.0
+        )
+        self._cos_sza_input = cos_sza
+
         raw_filter = radiance_filter if radiance_filter is not None else filter
         self._radiance_filter_weights = _normalized_filter_weights(raw_filter)
         self._poly_order = poly_order
-        self._initial_params = np.array(
+        base_initial = np.array(
             [0.0, 0.0, 0.2, 0.0] if initial_params is None else initial_params,
             dtype=float,
         )
-        self._bounds = bounds or (
-            np.array([-0.5, -0.05, 1e-4, -1.0], dtype=float),
-            np.array([0.5, 0.05, 3.0, 1.0], dtype=float),
-        )
+        if bounds is None:
+            base_lower = np.array([-0.5, -0.05, 1e-4, -1.0], dtype=float)
+            base_upper = np.array([0.5, 0.05, 3.0, 1.0], dtype=float)
+        else:
+            base_lower = np.asarray(bounds[0], dtype=float)
+            base_upper = np.asarray(bounds[1], dtype=float)
+
+        num_manual = len(self._manual_predictor_names)
+        if num_manual == 0:
+            self._initial_params = base_initial
+            self._bounds = (base_lower, base_upper)
+        else:
+            total_params = 4 + num_manual
+            if base_initial.size == 4:
+                base_initial = np.concatenate(
+                    [base_initial, np.zeros(num_manual, dtype=float)]
+                )
+            elif base_initial.size != total_params:
+                msg = (
+                    "initial_params must contain either 4 base values or "
+                    f"{total_params} values including manual predictor offsets"
+                )
+                raise ValueError(msg)
+
+            default_offset_bound_nm = 0.25
+            if base_lower.size == 4:
+                base_lower = np.concatenate(
+                    [
+                        base_lower,
+                        np.full(num_manual, -default_offset_bound_nm, dtype=float),
+                    ]
+                )
+            if base_upper.size == 4:
+                base_upper = np.concatenate(
+                    [
+                        base_upper,
+                        np.full(num_manual, default_offset_bound_nm, dtype=float),
+                    ]
+                )
+
+            if base_lower.size != total_params or base_upper.size != total_params:
+                msg = (
+                    "bounds must contain either 4 base values or "
+                    f"{total_params} values including manual predictor offsets"
+                )
+                raise ValueError(msg)
+
+            self._initial_params = base_initial
+            self._bounds = (base_lower, base_upper)
         self._residual_pca_components = max(0, int(residual_pca_components))
         self._tilt_pca_components = max(0, int(tilt_pca_components))
         self._residual_basis: np.ndarray | None = None
@@ -397,6 +881,7 @@ class DOASFitter:
 
         reference_radiance = _measurement_radiance(radiances)
         self._reference_wavelengths = reference_radiance.wavelength.to_numpy()
+        self._cos_sza = self._prepare_cos_sza(reference_radiance)
 
         min_wavel = reference_radiance.wavelength.min()
         max_wavel = reference_radiance.wavelength.max()
@@ -418,10 +903,21 @@ class DOASFitter:
             model_geo,
             sk.Config(),
             self._calc_wavelength,
-            calculate_derivatives=False,
+            calculate_derivatives=any(self._absorber_derivative_predictors.values()),
         )
         anc.add_to_atmosphere(atmo)
         atmo["o3"].vmr[:] *= 0.0
+        model_altitudes = np.asarray(atmo.model_geometry.altitudes(), dtype=float)
+        model_temperatures = np.asarray(atmo.temperature_k, dtype=float)
+        tangent_altitudes = np.asarray(
+            reference_radiance.tangent_altitude.to_numpy(),
+            dtype=float,
+        )
+        self._tangent_temperatures = np.interp(
+            tangent_altitudes,
+            model_altitudes,
+            model_temperatures,
+        )
 
         viewing_geo = sk.ViewingGeometry()
 
@@ -436,16 +932,152 @@ class DOASFitter:
         self._xs_variance_ratio = {}
         for name, optical_quantity in self._optical.items():
             configured_temperatures = self._absorber_temperatures.get(name, 220.0)
+            include_cross_section_predictor = bool(
+                self._absorber_cross_section_predictors.get(name, True)
+            )
+
+            if not include_cross_section_predictor:
+                self._xs[name] = np.zeros((0, int(atmo.num_wavel)), dtype=float)
+                self._xs_variance_ratio[name] = np.array([], dtype=float)
+                continue
+
+            configured_basis_method = (
+                str(self._absorber_basis_method.get(name, "optical")).strip().lower()
+            )
+            if configured_basis_method in {
+                "optical",
+                "optically_thin",
+                "optically-thin",
+                "thin",
+            }:
+                basis_from_rt = False
+            elif configured_basis_method in {
+                "radiative_transfer",
+                "radiative-transfer",
+                "rt",
+                "full_rt",
+                "full-rt",
+            }:
+                basis_from_rt = True
+            else:
+                msg = (
+                    f"Unsupported absorber_basis_method '{configured_basis_method}' "
+                    f"for absorber '{name}'"
+                )
+                raise ValueError(msg)
+
+            if isinstance(configured_temperatures, str):
+                if configured_temperatures.lower() != "tangent":
+                    msg = "absorber_temperatures supports string mode 'tangent' only"
+                    raise ValueError(msg)
+
+                sample_components = []
+                sample_variance = []
+                for temperature in self._tangent_temperatures:
+                    if basis_from_rt:
+                        components, variance_ratio = _rt_cross_section_components(
+                            name,
+                            atmo,
+                            engine,
+                            [float(temperature)],
+                        )
+                    else:
+                        components, variance_ratio = (
+                            _temperature_cross_section_components(
+                                optical_quantity,
+                                atmo,
+                                [float(temperature)],
+                            )
+                        )
+                    sample_components.append(components)
+                    sample_variance.append(variance_ratio)
+
+                self._xs_by_sample[name] = np.stack(sample_components, axis=0)
+                self._xs[name] = np.mean(self._xs_by_sample[name], axis=0)
+                self._xs_variance_ratio[name] = np.mean(
+                    np.stack(sample_variance, axis=0),
+                    axis=0,
+                )
+                continue
+
             if isinstance(configured_temperatures, int | float):
                 configured_temperatures = [float(configured_temperatures)]
 
-            components, variance_ratio = _temperature_cross_section_components(
-                optical_quantity,
-                atmo,
-                configured_temperatures,
-            )
+            if basis_from_rt:
+                components, variance_ratio = _rt_cross_section_components(
+                    name,
+                    atmo,
+                    engine,
+                    configured_temperatures,
+                )
+            else:
+                components, variance_ratio = _temperature_cross_section_components(
+                    optical_quantity,
+                    atmo,
+                    configured_temperatures,
+                )
             self._xs[name] = components
             self._xs_variance_ratio[name] = variance_ratio
+
+        for predictor_name, predictor in self._manual_predictors.items():
+            if predictor_name in self._xs:
+                msg = (
+                    f"manual predictor '{predictor_name}' conflicts with an existing "
+                    "absorber name"
+                )
+                raise ValueError(msg)
+
+            components = _manual_predictor_to_components(
+                predictor_name,
+                predictor,
+                self._calc_wavelength,
+            )
+            self._xs[predictor_name] = components
+            self._xs_variance_ratio[predictor_name] = (
+                np.ones(
+                    components.shape[0],
+                    dtype=float,
+                )
+                / components.shape[0]
+            )
+
+        if any(self._absorber_derivative_predictors.values()):
+            for name, enabled in self._absorber_derivative_predictors.items():
+                if not enabled:
+                    continue
+
+                derivative_component = _species_log_radiance_derivative_component(
+                    modelled_radiance,
+                    name,
+                    int(atmo.num_wavel),
+                )
+                if derivative_component is None:
+                    continue
+
+                derivative_component = np.asarray(derivative_component, dtype=float)[
+                    np.newaxis, :
+                ]
+                self._absorber_derivative_component_count[name] = 1
+
+                self._xs[name] = np.vstack([self._xs[name], derivative_component])
+                if name in self._xs_by_sample:
+                    num_samples = self._xs_by_sample[name].shape[0]
+                    repeated = np.repeat(
+                        derivative_component[np.newaxis, :, :],
+                        num_samples,
+                        axis=0,
+                    )
+                    self._xs_by_sample[name] = np.concatenate(
+                        [self._xs_by_sample[name], repeated],
+                        axis=1,
+                    )
+
+                old_ratio = np.asarray(self._xs_variance_ratio[name], dtype=float)
+                new_ratio = np.append(old_ratio, 0.0)
+                ratio_sum = np.sum(new_ratio)
+                if ratio_sum > 0:
+                    new_ratio = new_ratio / ratio_sum
+                self._xs_variance_ratio[name] = new_ratio
 
         self._irrad = sk.solar.SolarModel().irradiance(self._calc_wavelength)
 
@@ -458,21 +1090,23 @@ class DOASFitter:
         )
 
         def residual(params: np.ndarray) -> np.ndarray:
-            design_matrix, _, _, _ = _design_matrix(
+            manual_offsets = {
+                name: float(params[idx])
+                for name, idx in self._manual_predictor_param_index.items()
+            }
+            design_matrices, _, _, _ = self._design_matrices_for_samples(
                 calibration_radiance.wavelength.to_numpy(),
-                self._calc_wavelength,
-                self._xs,
-                self._irrad,
-                self._poly_order,
-                shift=params[0],
-                stretch=params[1],
-                fwhm_zero=params[2],
-                fwhm_slope=params[3],
+                calibration_log.shape[0],
+                shift=float(params[0]),
+                stretch=float(params[1]),
+                fwhm_zero=float(params[2]),
+                fwhm_slope=float(params[3]),
+                manual_predictor_offsets=manual_offsets,
                 residual_basis=self._residual_basis,
                 tilt_basis=None,
             )
-            _, fitted = _solve_linear_coefficients(
-                design_matrix,
+            _, fitted = self._solve_linear_coefficients_for_samples(
+                design_matrices,
                 calibration_log,
                 calibration_mask,
             )
@@ -487,21 +1121,22 @@ class DOASFitter:
         )
 
         if self._residual_pca_components > 0:
-            initial_design, _, _, _ = _design_matrix(
+            initial_design_matrices, _, _, _ = self._design_matrices_for_samples(
                 calibration_radiance.wavelength.to_numpy(),
-                self._calc_wavelength,
-                self._xs,
-                self._irrad,
-                self._poly_order,
+                calibration_log.shape[0],
                 shift=float(self._nonlinear_fit.x[0]),
                 stretch=float(self._nonlinear_fit.x[1]),
                 fwhm_zero=float(self._nonlinear_fit.x[2]),
                 fwhm_slope=float(self._nonlinear_fit.x[3]),
+                manual_predictor_offsets={
+                    name: float(self._nonlinear_fit.x[idx])
+                    for name, idx in self._manual_predictor_param_index.items()
+                },
                 residual_basis=None,
                 tilt_basis=None,
             )
-            _, initial_fitted = _solve_linear_coefficients(
-                initial_design,
+            _, initial_fitted = self._solve_linear_coefficients_for_samples(
+                initial_design_matrices,
                 calibration_log,
                 calibration_mask,
             )
@@ -532,6 +1167,10 @@ class DOASFitter:
         self._stretch = float(self._nonlinear_fit.x[1])
         self._fwhm_zero = float(self._nonlinear_fit.x[2])
         self._fwhm_slope = float(self._nonlinear_fit.x[3])
+        self._manual_predictor_offsets = {
+            name: float(self._nonlinear_fit.x[idx])
+            for name, idx in self._manual_predictor_param_index.items()
+        }
 
         self._convolved_modelled_radiance = self._convolve_modelled_radiance(
             modelled_radiance
@@ -540,6 +1179,7 @@ class DOASFitter:
             _, tilt_spectrum = self._calculate_tilt_spectrum(
                 self._convolved_modelled_radiance,
                 self._reference_wavelengths,
+                self._cos_sza,
             )
             self._tilt_pca_basis, self._tilt_pca_variance_ratio = (
                 self._tilt_pca_from_spectrum(
@@ -550,7 +1190,137 @@ class DOASFitter:
 
         # Cache the design matrix after initialization. Subsequent fit calls
         # reuse it because the fitted nonlinear params and wavelengths are fixed.
-        self._build_cached_design_matrix()
+        if not self._uses_sample_specific_xs:
+            self._build_cached_design_matrix()
+
+    @property
+    def _uses_sample_specific_xs(self) -> bool:
+        return bool(self._xs_by_sample)
+
+    def _validate_sample_count(self, num_samples: int) -> None:
+        if not self._uses_sample_specific_xs:
+            return
+
+        expected = len(self._tangent_temperatures)
+        if num_samples != expected:
+            msg = (
+                "DOASFitter configured with tangent-temperature absorbers requires "
+                f"{expected} samples, got {num_samples}"
+            )
+            raise ValueError(msg)
+
+    def _sample_xs(self, sample_index: int) -> dict[str, np.ndarray]:
+        sample_xs: dict[str, np.ndarray] = {}
+        for name, components in self._xs.items():
+            by_sample = self._xs_by_sample.get(name)
+            sample_xs[name] = (
+                by_sample[sample_index] if by_sample is not None else components
+            )
+        return sample_xs
+
+    def _design_matrices_for_samples(
+        self,
+        wavelengths: np.ndarray,
+        num_samples: int,
+        *,
+        shift: float,
+        stretch: float,
+        fwhm_zero: float,
+        fwhm_slope: float,
+        manual_predictor_offsets: Mapping[str, float] | None,
+        residual_basis: np.ndarray | None,
+        tilt_basis: np.ndarray | None,
+    ) -> tuple[
+        list[np.ndarray],
+        list[dict[str, np.ndarray]],
+        np.ndarray,
+        np.ndarray,
+    ]:
+        if not self._uses_sample_specific_xs:
+            design_matrix, convolved_xs, convolved_irrad, fit_wavelength = (
+                _design_matrix(
+                    wavelengths,
+                    self._calc_wavelength,
+                    self._xs,
+                    self._irrad,
+                    self._poly_order,
+                    shift=shift,
+                    stretch=stretch,
+                    fwhm_zero=fwhm_zero,
+                    fwhm_slope=fwhm_slope,
+                    manual_predictor_offsets=manual_predictor_offsets,
+                    nonlinear_orders=self._absorber_nonlinear_orders,
+                    residual_basis=residual_basis,
+                    tilt_basis=tilt_basis,
+                )
+            )
+            return [design_matrix], [convolved_xs], convolved_irrad, fit_wavelength
+
+        self._validate_sample_count(num_samples)
+        design_matrices: list[np.ndarray] = []
+        convolved_xs_list: list[dict[str, np.ndarray]] = []
+        convolved_irrad: np.ndarray | None = None
+        fit_wavelength: np.ndarray | None = None
+
+        for sample_idx in range(num_samples):
+            (
+                design_matrix,
+                convolved_xs,
+                sample_convolved_irrad,
+                sample_fit_wavelength,
+            ) = _design_matrix(
+                wavelengths,
+                self._calc_wavelength,
+                self._sample_xs(sample_idx),
+                self._irrad,
+                self._poly_order,
+                shift=shift,
+                stretch=stretch,
+                fwhm_zero=fwhm_zero,
+                fwhm_slope=fwhm_slope,
+                manual_predictor_offsets=manual_predictor_offsets,
+                nonlinear_orders=self._absorber_nonlinear_orders,
+                residual_basis=residual_basis,
+                tilt_basis=tilt_basis,
+            )
+            design_matrices.append(design_matrix)
+            convolved_xs_list.append(convolved_xs)
+            if convolved_irrad is None:
+                convolved_irrad = sample_convolved_irrad
+            if fit_wavelength is None:
+                fit_wavelength = sample_fit_wavelength
+
+        if convolved_irrad is None or fit_wavelength is None:
+            msg = "Unable to build sample-specific design matrices"
+            raise ValueError(msg)
+
+        return design_matrices, convolved_xs_list, convolved_irrad, fit_wavelength
+
+    def _solve_linear_coefficients_for_samples(
+        self,
+        design_matrices: list[np.ndarray],
+        log_radiances: np.ndarray,
+        valid_mask: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if len(design_matrices) == 1:
+            return _solve_linear_coefficients(
+                design_matrices[0],
+                log_radiances,
+                valid_mask,
+            )
+
+        coeff_rows = []
+        fitted_rows = []
+        for sample_idx, design_matrix in enumerate(design_matrices):
+            coeff, fitted = _solve_linear_coefficients(
+                design_matrix,
+                log_radiances[sample_idx : sample_idx + 1],
+                valid_mask[sample_idx : sample_idx + 1],
+            )
+            coeff_rows.append(coeff[0])
+            fitted_rows.append(fitted[0])
+
+        return np.vstack(coeff_rows), np.vstack(fitted_rows)
 
     def _build_cached_design_matrix(self) -> None:
         design_matrix, convolved_xs, convolved_irrad, fit_wavelength = _design_matrix(
@@ -563,6 +1333,8 @@ class DOASFitter:
             stretch=self._stretch,
             fwhm_zero=self._fwhm_zero,
             fwhm_slope=self._fwhm_slope,
+            manual_predictor_offsets=self._manual_predictor_offsets,
+            nonlinear_orders=self._absorber_nonlinear_orders,
             residual_basis=self._residual_basis,
             tilt_basis=self._tilt_pca_basis,
         )
@@ -582,29 +1354,57 @@ class DOASFitter:
 
         sample_dims = [dim for dim in radiance_data.dims if dim != "wavelength"]
 
-        if (
-            self._cached_design_matrix is None
-            or self._cached_convolved_xs is None
-            or self._cached_convolved_irrad is None
-            or self._cached_fit_wavelength is None
-        ):
-            self._build_cached_design_matrix()
+        if self._uses_sample_specific_xs:
+            design_matrices, convolved_xs_list, convolved_irrad, fit_wavelength = (
+                self._design_matrices_for_samples(
+                    radiance_data.wavelength.to_numpy(),
+                    log_radiances.shape[0],
+                    shift=self._shift,
+                    stretch=self._stretch,
+                    fwhm_zero=self._fwhm_zero,
+                    fwhm_slope=self._fwhm_slope,
+                    manual_predictor_offsets=self._manual_predictor_offsets,
+                    residual_basis=self._residual_basis,
+                    tilt_basis=self._tilt_pca_basis,
+                )
+            )
+            coefficients, fitted_log_radiance = (
+                self._solve_linear_coefficients_for_samples(
+                    design_matrices,
+                    log_radiances,
+                    valid_mask,
+                )
+            )
+        else:
+            if (
+                self._cached_design_matrix is None
+                or self._cached_convolved_xs is None
+                or self._cached_convolved_irrad is None
+                or self._cached_fit_wavelength is None
+            ):
+                self._build_cached_design_matrix()
 
-        best_design_matrix = self._cached_design_matrix
-        convolved_xs = self._cached_convolved_xs
-        convolved_irrad = self._cached_convolved_irrad
-        fit_wavelength = self._cached_fit_wavelength
-        coefficients, fitted_log_radiance = _solve_linear_coefficients(
-            best_design_matrix,
-            log_radiances,
-            valid_mask,
-        )
+            design_matrices = [self._cached_design_matrix]
+            convolved_xs_list = [self._cached_convolved_xs]
+            convolved_irrad = self._cached_convolved_irrad
+            fit_wavelength = self._cached_fit_wavelength
+            coefficients, fitted_log_radiance = _solve_linear_coefficients(
+                self._cached_design_matrix,
+                log_radiances,
+                valid_mask,
+            )
 
         basis_names = []
         for name, components in self._xs.items():
-            basis_names.extend(
-                f"{name}_pca_{idx}" for idx in range(components.shape[0])
-            )
+            deriv_count = self._absorber_derivative_component_count.get(name, 0)
+            base_count = max(components.shape[0] - deriv_count, 0)
+            basis_names.extend(f"{name}_pca_{idx}" for idx in range(base_count))
+            basis_names.extend(f"{name}_dlogI_{idx}" for idx in range(deriv_count))
+            for order in self._absorber_nonlinear_orders.get(name, ()):
+                basis_names.extend(
+                    f"{name}_nl_pca_{idx}_pow_{order}"
+                    for idx in range(components.shape[0])
+                )
         basis_names.extend(
             ["irrad"] + [f"poly_{idx}" for idx in range(self._poly_order + 1)]
         )
@@ -650,9 +1450,17 @@ class DOASFitter:
         ]
         bro_index = bro_indices[0] if bro_indices else None
         if bro_indices:
-            bro_contribution = (
-                coefficients[:, bro_indices] @ best_design_matrix[:, bro_indices].T
-            )
+            if len(design_matrices) == 1:
+                bro_contribution = (
+                    coefficients[:, bro_indices] @ design_matrices[0][:, bro_indices].T
+                )
+            else:
+                bro_contribution = np.zeros_like(fitted_log_radiance)
+                for sample_idx, sample_design_matrix in enumerate(design_matrices):
+                    bro_contribution[sample_idx] = (
+                        coefficients[sample_idx, bro_indices]
+                        @ sample_design_matrix[:, bro_indices].T
+                    )
         else:
             bro_contribution = np.zeros_like(fitted_log_radiance)
 
@@ -681,7 +1489,12 @@ class DOASFitter:
             if not np.any(sample_mask):
                 continue
 
-            a_matrix = best_design_matrix[sample_mask]
+            sample_design_matrix = (
+                design_matrices[0]
+                if len(design_matrices) == 1
+                else design_matrices[sample_idx]
+            )
+            a_matrix = sample_design_matrix[sample_mask]
             n_obs, n_param = a_matrix.shape
             if n_obs == 0:
                 continue
@@ -739,7 +1552,12 @@ class DOASFitter:
                 if not np.any(sample_mask):
                     continue
 
-                a_matrix = best_design_matrix[sample_mask]
+                sample_design_matrix = (
+                    design_matrices[0]
+                    if len(design_matrices) == 1
+                    else design_matrices[sample_idx]
+                )
+                a_matrix = sample_design_matrix[sample_mask]
                 if a_matrix.shape[0] == 0:
                     continue
 
@@ -828,6 +1646,21 @@ class DOASFitter:
             },
         )
 
+        if self._manual_predictor_names:
+            dataset = dataset.assign_coords(
+                manual_predictor=np.array(self._manual_predictor_names, dtype=str)
+            )
+            dataset["manual_predictor_spectral_offset_nm"] = (
+                ("manual_predictor",),
+                np.array(
+                    [
+                        self._manual_predictor_offsets.get(name, 0.0)
+                        for name in self._manual_predictor_names
+                    ],
+                    dtype=float,
+                ),
+            )
+
         if bro_coefficient_wf is not None and x_coord is not None:
             dataset = dataset.assign_coords(x=x_coord)
             dataset["bro_coefficient_wf"] = (
@@ -862,6 +1695,7 @@ class DOASFitter:
             tilt_polynomial, tilt_spectrum = self._calculate_tilt_spectrum(
                 modelled_conv,
                 wavelengths,
+                self._cos_sza,
             )
 
             dataset["tilt_polynomial"] = (
@@ -886,9 +1720,21 @@ class DOASFitter:
                 self._tilt_pca_variance_ratio,
             )
 
-        for name, values in convolved_xs.items():
+        for name in self._xs:
+            if len(convolved_xs_list) == 1:
+                values = convolved_xs_list[0][name]
+            else:
+                values = np.stack(
+                    [
+                        sample_convolved_xs[name]
+                        for sample_convolved_xs in convolved_xs_list
+                    ],
+                    axis=0,
+                )
+
             component_dim = f"{name}_component"
-            dataset = dataset.assign_coords({component_dim: np.arange(values.shape[0])})
+            num_components = self._xs[name].shape[0]
+            dataset = dataset.assign_coords({component_dim: np.arange(num_components)})
             dataset[f"xs_pca_{name}"] = (
                 (component_dim, "calc_wavelength"),
                 self._xs[name],
@@ -897,7 +1743,16 @@ class DOASFitter:
                 (component_dim,),
                 self._xs_variance_ratio[name],
             )
-            dataset[f"convolved_xs_{name}"] = ((component_dim, "wavelength"), values)
+            if len(convolved_xs_list) == 1:
+                dataset[f"convolved_xs_{name}"] = (
+                    (component_dim, "wavelength"),
+                    values,
+                )
+            else:
+                dataset[f"convolved_xs_{name}"] = (
+                    (fit_coord_name, component_dim, "wavelength"),
+                    values,
+                )
 
         if self._residual_basis is not None:
             dataset = dataset.assign_coords(
@@ -935,6 +1790,35 @@ class DOASFitter:
 
         safe_radiance_values = np.where(valid_mask, radiance_values, 1.0)
         return radiance_data, radiance_values, valid_mask, np.log(safe_radiance_values)
+
+    def _prepare_cos_sza(self, radiance_data: xr.DataArray) -> np.ndarray:
+        values = np.asarray(radiance_data.to_numpy(), dtype=float)
+        expected_samples = 1 if values.ndim == 1 else int(np.prod(values.shape[:-1]))
+
+        if self._cos_sza_input is None:
+            return np.ones(expected_samples, dtype=float)
+
+        if isinstance(self._cos_sza_input, xr.DataArray):
+            cos_values = np.asarray(self._cos_sza_input.to_numpy(), dtype=float)
+        else:
+            cos_values = np.asarray(self._cos_sza_input, dtype=float)
+
+        cos_values = cos_values.reshape(-1)
+        finite = np.isfinite(cos_values)
+        if not np.any(finite):
+            return np.ones(expected_samples, dtype=float)
+
+        cos_values = cos_values[finite]
+        if cos_values.size == 1:
+            return np.full(expected_samples, float(cos_values[0]), dtype=float)
+        if cos_values.size != expected_samples:
+            msg = (
+                "cos_sza must be scalar or match the number of non-wavelength "
+                f"samples ({expected_samples}); got {cos_values.size}"
+            )
+            raise ValueError(msg)
+
+        return cos_values
 
     def _convolve_modelled_radiance(
         self,
@@ -996,6 +1880,7 @@ class DOASFitter:
         self,
         modelled_conv: np.ndarray,
         wavelengths: np.ndarray,
+        cos_sza: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
         if (
             modelled_conv.ndim != 2
@@ -1011,7 +1896,30 @@ class DOASFitter:
 
         ref_idx = -2 if modelled_conv.shape[0] >= 2 else -1
         log_modelled_ref = log_modelled[ref_idx]
-        tilt_raw = log_modelled - log_modelled_ref
+
+        if cos_sza is None:
+            cos_sza_arr = np.ones(modelled_conv.shape[0], dtype=float)
+        else:
+            cos_sza_arr = np.asarray(cos_sza, dtype=float).reshape(-1)
+            if cos_sza_arr.size == 1:
+                cos_sza_arr = np.full(
+                    modelled_conv.shape[0], cos_sza_arr[0], dtype=float
+                )
+            elif cos_sza_arr.size != modelled_conv.shape[0]:
+                cos_sza_arr = np.full(
+                    modelled_conv.shape[0], np.nanmedian(cos_sza_arr), dtype=float
+                )
+
+        safe_cos = np.where(
+            np.isfinite(cos_sza_arr) & (np.abs(cos_sza_arr) > 1e-6), cos_sza_arr, np.nan
+        )
+        ref_cos = safe_cos[ref_idx]
+        if not np.isfinite(ref_cos):
+            ref_cos = 1.0
+        airmass_scale = ref_cos / safe_cos
+        airmass_scale = np.where(np.isfinite(airmass_scale), airmass_scale, 1.0)
+
+        tilt_raw = (log_modelled - log_modelled_ref) * airmass_scale[:, np.newaxis]
 
         band_center = float(np.mean(wavelengths))
         normalized_wavelength = (wavelengths - band_center) / max(
