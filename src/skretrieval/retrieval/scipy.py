@@ -237,7 +237,7 @@ class SciPyMinimizer(Minimizer):
 
         results.update(estimate_error(K, Sy, inv_Sy, inv_Sa))
 
-        return results
+        return retrieval_target.state_vector_error_output(results)
 
 
 class SciPyMinimizerGrad(Minimizer):
