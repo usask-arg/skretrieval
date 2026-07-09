@@ -14,6 +14,29 @@ def _as_scalar(value) -> float:
     return float(np.asarray(value).reshape(-1)[0])
 
 
+def _altitude_grids_match(altitude_grid: np.ndarray, model_altitude_grid) -> bool:
+    if model_altitude_grid is None:
+        return False
+
+    model_altitude_grid = np.asarray(model_altitude_grid)
+    return altitude_grid.shape == model_altitude_grid.shape and np.allclose(
+        altitude_grid, model_altitude_grid
+    )
+
+
+def _physical_1sigma(
+    covariance: np.ndarray,
+    state_slice: slice,
+    scale_factor: float,
+    property_values,
+    log_space: bool,
+) -> np.ndarray:
+    sigma = np.sqrt(np.diag(covariance)[state_slice])
+    if log_space:
+        return sigma * np.asarray(property_values)
+    return sigma / scale_factor
+
+
 class StateVectorElementConstituent(
     StateVectorElement, sk2.constituent.base.Constituent
 ):
@@ -216,8 +239,52 @@ class StateVectorElementConstituent(
             else:
                 setattr(self._constituent, key, getattr(self._constituent, key) * value)
 
+    def _constituent_altitude_grid(self, property_length: int) -> np.ndarray | None:
+        for attr_name in ("altitudes_m", "_altitudes_m", "_altitude_grid_m"):
+            if hasattr(self._constituent, attr_name):
+                altitude_grid = np.asarray(getattr(self._constituent, attr_name))
+                if altitude_grid.shape == (property_length,):
+                    return altitude_grid
+
+        nested_constituent = getattr(self._constituent, "_constituent", None)
+        if nested_constituent is not None and hasattr(
+            nested_constituent, "altitudes_m"
+        ):
+            altitude_grid = np.asarray(nested_constituent.altitudes_m)
+            if altitude_grid.shape == (property_length,):
+                return altitude_grid
+
+        return None
+
+    def _profile_dims_and_coords(
+        self, property_length: int, model_altitude_grid
+    ) -> tuple[str, str, dict[str, np.ndarray]]:
+        altitude_grid = self._constituent_altitude_grid(property_length)
+
+        if altitude_grid is None and model_altitude_grid is not None:
+            model_altitude_grid = np.asarray(model_altitude_grid)
+            if model_altitude_grid.shape == (property_length,):
+                altitude_grid = model_altitude_grid
+
+        if altitude_grid is None or _altitude_grids_match(
+            altitude_grid, model_altitude_grid
+        ):
+            altitude_dim = "altitude"
+            altitude_dim_2 = "altitude_2"
+        else:
+            altitude_dim = f"{self._constituent_name}_altitude"
+            altitude_dim_2 = f"{altitude_dim}_2"
+
+        coords = {}
+        if altitude_grid is not None:
+            coords[altitude_dim] = altitude_grid
+            coords[altitude_dim_2] = altitude_grid
+
+        return altitude_dim, altitude_dim_2, coords
+
     def describe(self, **kwargs) -> xr.Dataset | None:
         ds = xr.Dataset()
+        model_altitude_grid = kwargs.get("model_altitude_grid")
 
         if (
             type(self._constituent)
@@ -231,7 +298,13 @@ class StateVectorElementConstituent(
                 coords={self._constituent._interp_var: self._constituent._x},
             )
             ds[self._constituent_name + "_1sigma_error"] = xr.DataArray(
-                np.sqrt(np.diag(kwargs["covariance"])),
+                _physical_1sigma(
+                    kwargs["covariance"],
+                    slice(None),
+                    self._scale_factor,
+                    albedo,
+                    self._log_space,
+                ),
                 dims=[self._constituent._interp_var],
                 coords={self._constituent._interp_var: self._constituent._x},
             )
@@ -250,38 +323,30 @@ class StateVectorElementConstituent(
                 else:
                     prior_values = self._prior[property_name].state / self._scale_factor
 
-                ds[self._constituent_name + "_" + property_name + "_prior"] = (
-                    xr.DataArray(prior_values, dims=["altitude"])
-                )
                 if end - start == 1:  # scalar property
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
                         _as_scalar(getattr(self._constituent, property_name))
                     )
 
                     ds[self._constituent_name + "_" + property_name + "_prior"] = (
-                        _as_scalar(self._prior[property_name].state)
+                        _as_scalar(prior_values)
                     )
 
                     if "covariance" in kwargs:
-                        if self._log_space:
-                            ds[
-                                self._constituent_name
-                                + "_"
-                                + property_name
-                                + "_1sigma_error"
-                            ] = _as_scalar(
-                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
-                                * getattr(self._constituent, property_name)
+                        ds[
+                            self._constituent_name
+                            + "_"
+                            + property_name
+                            + "_1sigma_error"
+                        ] = _as_scalar(
+                            _physical_1sigma(
+                                kwargs["covariance"],
+                                slice(start, end),
+                                self._scale_factor,
+                                getattr(self._constituent, property_name),
+                                self._log_space,
                             )
-                        else:
-                            ds[
-                                self._constituent_name
-                                + "_"
-                                + property_name
-                                + "_1sigma_error"
-                            ] = _as_scalar(
-                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
-                            )
+                        )
 
                     if "averaging_kernel" in kwargs:
                         ds[
@@ -291,38 +356,54 @@ class StateVectorElementConstituent(
                             + "_averaging_kernel"
                         ] = _as_scalar(kwargs["averaging_kernel"][start:end, start:end])
                 else:
+                    altitude_dim, altitude_dim_2, coords = (
+                        self._profile_dims_and_coords(end - start, model_altitude_grid)
+                    )
+                    profile_coords = (
+                        {altitude_dim: coords[altitude_dim]}
+                        if altitude_dim in coords
+                        else None
+                    )
+                    ak_coords = (
+                        {
+                            altitude_dim: coords[altitude_dim],
+                            altitude_dim_2: coords[altitude_dim_2],
+                        }
+                        if altitude_dim in coords and altitude_dim_2 in coords
+                        else None
+                    )
+
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
-                        getattr(self._constituent, property_name), dims=["altitude"]
+                        getattr(self._constituent, property_name),
+                        dims=[altitude_dim],
+                        coords=profile_coords,
                     )
 
                     ds[self._constituent_name + "_" + property_name + "_prior"] = (
                         xr.DataArray(
-                            self._prior[property_name].state, dims=["altitude"]
+                            prior_values,
+                            dims=[altitude_dim],
+                            coords=profile_coords,
                         )
                     )
 
                     if "covariance" in kwargs:
-                        if self._log_space:
-                            ds[
-                                self._constituent_name
-                                + "_"
-                                + property_name
-                                + "_1sigma_error"
-                            ] = xr.DataArray(
-                                np.sqrt(np.diag(kwargs["covariance"])[start:end])
-                                * getattr(self._constituent, property_name),
-                                dims=["altitude"],
-                            )
-                        else:
-                            ds[
-                                self._constituent_name
-                                + "_"
-                                + property_name
-                                + "_1sigma_error"
-                            ] = xr.DataArray(
-                                np.sqrt(np.diag(kwargs["covariance"])[start:end]),
-                                dims=["altitude"],
-                            )
+                        ds[
+                            self._constituent_name
+                            + "_"
+                            + property_name
+                            + "_1sigma_error"
+                        ] = xr.DataArray(
+                            _physical_1sigma(
+                                kwargs["covariance"],
+                                slice(start, end),
+                                self._scale_factor,
+                                getattr(self._constituent, property_name),
+                                self._log_space,
+                            ),
+                            dims=[altitude_dim],
+                            coords=profile_coords,
+                        )
 
                     if "averaging_kernel" in kwargs:
                         ds[
@@ -332,7 +413,8 @@ class StateVectorElementConstituent(
                             + "_averaging_kernel"
                         ] = xr.DataArray(
                             kwargs["averaging_kernel"][start:end, start:end],
-                            dims=["altitude", "altitude_2"],
+                            dims=[altitude_dim, altitude_dim_2],
+                            coords=ak_coords,
                         )
 
                 start = end

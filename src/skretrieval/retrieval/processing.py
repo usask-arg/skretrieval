@@ -198,6 +198,7 @@ class Retrieval:
         min_val=0,
         max_val=1,
     ):
+        alt_grid = np.asarray(alt_grid, dtype=float)
         const = sk2.climatology.mipas.constituent(species_name, optical)
 
         altitudes_m = const._constituent.altitudes_m
@@ -230,8 +231,10 @@ class Retrieval:
     def _default_state_absorber(
         processor: Retrieval, name: str, native_alt_grid: np.array, cfg: dict
     ):
+        retrieval_alt_grid = cfg.get("altitude_grid", native_alt_grid)
+
         const = processor._const_from_mipas(
-            native_alt_grid,
+            retrieval_alt_grid,
             name,
             processor._optical_property(name),
             tikh=cfg["tikh_factor"],

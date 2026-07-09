@@ -127,6 +127,10 @@ class RetrievalTarget(ABC):
     ):
         return None
 
+    @staticmethod
+    def state_vector_error_output(output_dict: dict) -> dict:
+        return output_dict
+
 
 class Minimizer(ABC):
     """
