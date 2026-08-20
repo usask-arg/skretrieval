@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -48,6 +50,13 @@ class _Target(RetrievalTarget):
             "jacobian": np.ones((1, 1)),
             "y_error": np.eye(1),
         }
+
+
+class _MappedOutputTarget(_Target):
+    def state_vector_error_output(self, output_dict):
+        result = output_dict.copy()
+        result["mapped_output"] = True
+        return result
 
 
 class _IdentityOperator:
@@ -180,6 +189,20 @@ def test_scipy_matrix_free_can_skip_operator_diagnostics_and_accept_tr_options()
     assert "solution_covariance" not in result
 
 
+def test_scipy_matrix_free_maps_error_output_to_target_coordinates():
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        max_nfev=1,
+    )
+
+    result = minimizer.retrieve(
+        "measurement", _OperatorForwardModel(), _MappedOutputTarget()
+    )
+
+    assert result["mapped_output"]
+
+
 def test_scipy_materialized_can_use_linearization_jacobian_source():
     forward_model = _LinearizationMaterializedForwardModel()
     minimizer = SciPyMinimizer(
@@ -301,7 +324,7 @@ def test_forward_model_refreshes_active_linearization_metadata():
             )
 
     class Linearization:
-        backends = {"jvp": "native", "vjp": "native"}
+        backends: ClassVar = {"jvp": "native", "vjp": "native"}
         tangent_template = xr.Dataset(
             {
                 "parameter_0": xr.DataArray([0.0], dims=["first"]),
@@ -339,8 +362,8 @@ def test_forward_model_refreshes_active_linearization_metadata():
     forward_model._engine = {"measurement": object()}
     forward_model._linearization_tangent_templates = {}
     forward_model._linearize = lambda _key: Linearization()
-    forward_model._append_instrument_result = (
-        lambda l1, key, radiance: l1.__setitem__(key, radiance)
+    forward_model._append_instrument_result = lambda l1, key, radiance: l1.__setitem__(
+        key, radiance
     )
 
     first = forward_model.calculate_linearized_radiance()

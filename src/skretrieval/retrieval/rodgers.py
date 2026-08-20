@@ -190,7 +190,10 @@ class Rodgers(Minimizer):
         y_meas_dict, y_meas, Sy, inv_Sy, good_meas = self._measurement_parameters(
             retrieval_target, measurement_l1
         )
+        Sy_target = Sy
+        inv_Sy_target = inv_Sy
         x_a, inv_Sa, initial_guess = self._apriori_parameters(retrieval_target)
+        inv_Sa_target = inv_Sa
 
         xs = []
         xs.append(initial_guess)
@@ -222,9 +225,9 @@ class Rodgers(Minimizer):
 
             y_ret_dict = retrieval_target.measurement_vector(forward_l1)
 
-            K = y_ret_dict["jacobian"]
+            K_target = y_ret_dict["jacobian"][good_meas, :]
 
-            K = y_scaler_inv @ K[good_meas, :] @ x_scaler
+            K = y_scaler_inv @ K_target @ x_scaler
             y_ret = y_scaler_inv @ y_ret_dict["y"][good_meas]
 
             ys.append(y_ret_dict["y"])
@@ -399,6 +402,7 @@ class Rodgers(Minimizer):
                     x_a, inv_Sa, initial_guess = self._apriori_parameters(
                         retrieval_target
                     )
+                    inv_Sa_target = inv_Sa
 
                     if self._apply_cholesky_scaling:
                         x_scaler_inv = sparse.diags(np.sqrt(inv_Sa.diagonal()))
@@ -418,6 +422,8 @@ class Rodgers(Minimizer):
                         inv_Sy,
                         good_meas,
                     ) = self._measurement_parameters(retrieval_target, measurement_l1)
+                    Sy_target = Sy
+                    inv_Sy_target = inv_Sy
                     if self._apply_cholesky_scaling:
                         y_scaler = sparse.diags(1 / np.sqrt(inv_Sy.diagonal()))
                         y_scaler_inv = sparse.diags(np.sqrt(inv_Sy.diagonal()))
@@ -429,7 +435,10 @@ class Rodgers(Minimizer):
                     inv_Sy = y_scaler @ inv_Sy @ y_scaler
 
         if self._max_iter > 0:
-            output_dict.update(estimate_error(K, Sy, inv_Sy, inv_Sa, A_without_lm))
+            output_dict.update(
+                estimate_error(K_target, Sy_target, inv_Sy_target, inv_Sa_target)
+            )
+            output_dict = retrieval_target.state_vector_error_output(output_dict)
 
         output_dict["xs"] = xs
         output_dict["ys"] = ys

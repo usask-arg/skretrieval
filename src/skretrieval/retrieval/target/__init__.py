@@ -53,25 +53,6 @@ class _MappedJacobianOperator:
 
 
 class LogisticBoundingMixin:
-    def _jacobian_mapping(self, internal_state: np.ndarray | None = None) -> np.ndarray:
-        """Return the derivative of physical state with respect to internal state."""
-        if internal_state is None:
-            internal_state = self.state_vector()
-        bounded_state = self._map_internal_to_bounded(internal_state)
-        lower_bound = self.lower_bound()
-        upper_bound = self.upper_bound()
-        mapping = np.zeros_like(bounded_state)
-
-        unbounded = (lower_bound == -np.inf) & (upper_bound == np.inf)
-        bounded = (lower_bound != -np.inf) & (upper_bound != np.inf)
-        mapping[unbounded] = 1
-        mapping[bounded] = (
-            (bounded_state[bounded] - lower_bound[bounded])
-            * (upper_bound[bounded] - bounded_state[bounded])
-            / (upper_bound[bounded] - lower_bound[bounded])
-        )
-        return mapping
-
     def _map_bounded_to_internal(self, x: np.array) -> np.array:
         """
         Maps the bounded (user) state vector to the internal object
@@ -159,12 +140,35 @@ class LogisticBoundingMixin:
         """
         if not self._rescale_state_elements:
             return K
-        return K @ np.diag(self._jacobian_mapping())
+        return K @ np.diag(self._bounded_state_derivative_by_internal())
 
     def map_jacobian_operator(self, operator):
         if not self._rescale_state_elements:
             return operator
-        return _MappedJacobianOperator(operator, self._jacobian_mapping())
+        return _MappedJacobianOperator(
+            operator, self._bounded_state_derivative_by_internal()
+        )
+
+    def _bounded_state_derivative_by_internal(self) -> np.ndarray:
+        if not self._rescale_state_elements:
+            return np.ones_like(self.state_vector())
+
+        x = self._map_internal_to_bounded(self.state_vector())
+        lb = self.lower_bound()
+        ub = self.upper_bound()
+        mapping = np.zeros_like(x)
+
+        no_map = (lb == -np.inf) & (ub == np.inf)
+        both_bounds = (lb != -np.inf) & (ub != np.inf)
+
+        mapping[no_map] = 1
+        mapping[both_bounds] = (
+            (x[both_bounds] - lb[both_bounds])
+            * (ub[both_bounds] - x[both_bounds])
+            / (ub[both_bounds] - lb[both_bounds])
+        )
+
+        return mapping
 
     def _map_inv_Sa_by_dinternal(self, x: np.array, inv_Sa: np.ndarray) -> np.ndarray:
         """
@@ -417,6 +421,30 @@ class GenericTarget(RetrievalTarget, LogisticBoundingMixin):
         return self._map_inv_Sa_by_dinternal(
             self.state_vector(), block_diag(*inv_covar)
         )
+
+    def state_vector_error_output(self, output_dict: dict) -> dict:
+        if not self._rescale_state_elements:
+            return output_dict
+
+        mapping = self._bounded_state_derivative_by_internal()
+        transform = np.diag(mapping)
+        inv_transform = np.diag(1 / mapping)
+
+        result = output_dict.copy()
+
+        for key in ("error_covariance_from_noise", "solution_covariance"):
+            if key in result:
+                result[key] = transform @ result[key] @ transform
+
+        if "gain_matrix" in result:
+            result["gain_matrix"] = transform @ result["gain_matrix"]
+
+        if "averaging_kernel" in result:
+            result["averaging_kernel"] = (
+                transform @ result["averaging_kernel"] @ inv_transform
+            )
+
+        return result
 
     def update_state_slices(self):
         # Construct slices that map the full state vector to each individual state vector element

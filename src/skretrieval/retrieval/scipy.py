@@ -612,7 +612,7 @@ class SciPyMinimizer(Minimizer):
 
         results.update(estimate_error(K, Sy, inv_Sy, inv_Sa))
 
-        return results
+        return retrieval_target.state_vector_error_output(results)
 
     def _retrieve_matrix_free(
         self,
@@ -624,12 +624,14 @@ class SciPyMinimizer(Minimizer):
             msg = "Forward model does not provide calculate_linearized_radiance()"
             raise MatrixFreeUnsupportedError(msg)
         if self._matrix_free_solver == "lbfgsb":
-            return self._retrieve_matrix_free_lbfgsb(
+            results = self._retrieve_matrix_free_lbfgsb(
                 measurement_l1, forward_model, retrieval_target
             )
-        return self._retrieve_matrix_free_lsmr(
-            measurement_l1, forward_model, retrieval_target
-        )
+        else:
+            results = self._retrieve_matrix_free_lsmr(
+                measurement_l1, forward_model, retrieval_target
+            )
+        return retrieval_target.state_vector_error_output(results)
 
     def _matrix_free_problem(
         self,

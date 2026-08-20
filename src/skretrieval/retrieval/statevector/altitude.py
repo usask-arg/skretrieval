@@ -106,7 +106,9 @@ class AltitudeNativeStateVector(StateVector):
         -------
         xr.Dataset
         """
-        result = super().describe(rodgers_output)
+        result = super().describe(
+            rodgers_output, model_altitude_grid=self._altitude_grid
+        )
 
         result.coords["altitude"] = self._altitude_grid
 
