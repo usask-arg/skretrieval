@@ -108,7 +108,8 @@ class Retrieval:
         forward_model_cfg : dict | None, optional
             Additional arguments passed to the forward model, by default None
         """
-        if minimizer.lower() == "rodgers":
+        minimizer = minimizer.lower()
+        if minimizer == "rodgers":
             # Override the default Rodgers options
             self._minimizer_kwargs = {
                 "lm_damping_method": "fletcher",
@@ -128,8 +129,10 @@ class Retrieval:
 
         if state_kwargs is None:
             state_kwargs = {}
-        if target_kwargs is None:
-            target_kwargs = {}
+        target_kwargs = {} if target_kwargs is None else dict(target_kwargs)
+        if minimizer == "scipy_lbfgsb":
+            # L-BFGS-B is most stable in the target's bounded internal coordinates.
+            target_kwargs.setdefault("rescale_state_space", True)
         if model_kwargs is None:
             model_kwargs = {}
         if l1_kwargs is None:
@@ -359,6 +362,23 @@ class Retrieval:
             minimizer = Rodgers(**self._minimizer_kwargs)
         elif self._minimizer == "scipy":
             minimizer = SciPyMinimizer(**self._minimizer_kwargs)
+        elif self._minimizer == "scipy_lsmr":
+            scipy_lsmr_kwargs = {
+                "jacobian_mode": "matrix_free",
+                "x_scale": 1.0,
+            }
+            scipy_lsmr_kwargs.update(self._minimizer_kwargs)
+            minimizer = SciPyMinimizer(**scipy_lsmr_kwargs)
+        elif self._minimizer == "scipy_lbfgsb":
+            scipy_lbfgsb_kwargs = {
+                "jacobian_mode": "matrix_free",
+                "matrix_free_solver": "lbfgsb",
+                "matrix_free_diagnostics": "none",
+                "max_nfev": 100,
+                "ftol": 1e-8,
+            }
+            scipy_lbfgsb_kwargs.update(self._minimizer_kwargs)
+            minimizer = SciPyMinimizer(**scipy_lbfgsb_kwargs)
         elif self._minimizer == "scipy_grad":
             minimizer = SciPyMinimizerGrad()
 
@@ -453,7 +473,7 @@ def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa:
 
 @Retrieval.register_state("aerosols", "extinction_profile")
 def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
-    if cfg.get("prior_state") is not None and False:
+    if cfg.get("prior_state") is not None:
         ext = cfg["prior_state"]
     else:
         aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)

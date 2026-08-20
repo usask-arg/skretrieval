@@ -2,14 +2,34 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import sasktran2 as sk2
 
 import skretrieval as skr
 from skretrieval.retrieval.observation import SimulatedNadirObservation
 from skretrieval.util import configure_log
 
 
-@pytest.mark.parametrize("minimizer", ["rodgers", "scipy"])
-def test_simulated_retrieval(minimizer: str):
+@pytest.mark.parametrize(
+    ("minimizer", "minimizer_kwargs"),
+    [
+        pytest.param("rodgers", {}, id="rodgers"),
+        pytest.param("scipy", {}, id="scipy"),
+        pytest.param(
+            "scipy",
+            {"materialized_jacobian_source": "linearization"},
+            id="scipy-linearization",
+        ),
+        pytest.param("scipy_lsmr", {}, id="scipy-lsmr"),
+    ],
+)
+def test_simulated_retrieval(minimizer: str, minimizer_kwargs: dict):
+    needs_linearization = (
+        minimizer == "scipy_lsmr"
+        or minimizer_kwargs.get("materialized_jacobian_source") == "linearization"
+    )
+    if needs_linearization and not hasattr(sk2.Engine, "linearize"):
+        pytest.skip("SASKTRAN2 does not provide Engine.linearize")
+
     configure_log()
     obs = SimulatedNadirObservation(
         cos_sza=0.6,
@@ -26,6 +46,7 @@ def test_simulated_retrieval(minimizer: str):
     ret = skr.Retrieval(
         obs,
         minimizer=minimizer,
+        minimizer_kwargs=minimizer_kwargs,
         state_kwargs={
             "altitude_grid": np.arange(0, 70000, 1000),
             "absorbers": {

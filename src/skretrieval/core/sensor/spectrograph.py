@@ -8,8 +8,18 @@ import xarray as xr
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
 from skretrieval.core.lineshape import LineShape
+from skretrieval.core.radianceformat import LinearizedRadianceGridded
 from skretrieval.core.sasktranformat import SASKTRANRadiance
 from skretrieval.core.sensor import Sensor
+
+
+def _scalar_stokes(array: xr.DataArray, sensor_name: str) -> xr.DataArray:
+    if "stokes" not in array.dims:
+        return array
+    if array.sizes["stokes"] != 1:
+        msg = f"{sensor_name} only supports scalar radiances"
+        raise ValueError(msg)
+    return array.squeeze("stokes", drop=True)
 
 
 class Spectrograph(Sensor):
@@ -45,6 +55,7 @@ class Spectrograph(Sensor):
 
         self._cached_wavel_interp = None
         self._cached_wavel_interp_wavel = None
+        self._linearized_selection_cache = {}
 
         self._spectral_native_coordinate = spectral_native_coordinate
 
@@ -100,10 +111,11 @@ class Spectrograph(Sensor):
             radiance.data["wavelength_nm"].to_numpy(),
         )
 
+        scalar_radiance = _scalar_stokes(radiance.data["radiance"], type(self).__name__)
         modelled_radiance = np.einsum(
             "ij,jk...,kl",
             wavel_interp,
-            radiance.data["radiance"].to_numpy(),
+            scalar_radiance.to_numpy(),
             los_interp,
             optimize=True,
         )
@@ -128,18 +140,72 @@ class Spectrograph(Sensor):
         )
         for key in list(radiance.data):
             if key.startswith("wf"):
+                scalar_wf = _scalar_stokes(radiance.data[key], type(self).__name__)
                 modelled_wf = np.einsum(
                     "ij,ljk,km->iml",
                     wavel_interp,
-                    radiance.data[key].to_numpy(),
+                    scalar_wf.to_numpy(),
                     los_interp,
                     optimize=True,
                 )
 
                 data[key] = (
-                    ["wavelength", "los", radiance.data[key].dims[0]],
+                    ["wavelength", "los", scalar_wf.dims[0]],
                     modelled_wf,
                 )
+
+        if hasattr(radiance, "jvp") and hasattr(radiance, "vjp"):
+
+            def matvec(x, *, rad=radiance, w=wavel_interp, los=los_interp, tmpl=data):
+                raw = _scalar_stokes(rad.jvp(x), type(self).__name__)
+                values = np.einsum(
+                    "ij,jk...,kl",
+                    w,
+                    raw.to_numpy(),
+                    los,
+                    optimize=True,
+                )
+                return xr.DataArray(
+                    values,
+                    dims=tmpl["radiance"].dims,
+                    coords=tmpl["radiance"].coords,
+                )
+
+            def raw_cotangent(
+                cotangent, *, rad=radiance, w=wavel_interp, los=los_interp
+            ):
+                raw = rad.data["radiance"]
+                # Transpose the spectral and spatial convolutions in matvec.
+                values = np.einsum(
+                    "ij,il...,kl",
+                    w,
+                    np.asarray(cotangent).reshape(data["radiance"].shape),
+                    los,
+                    optimize=True,
+                )
+                if "stokes" in raw.dims:
+                    values = np.expand_dims(values, raw.get_axis_num("stokes"))
+                return values
+
+            def rmatvec(cotangent, *, rad=radiance, adjoint=raw_cotangent):
+                return rad.vjp(adjoint(cotangent))
+
+            def pullback(cotangent, *, rad=radiance, adjoint=raw_cotangent):
+                raw = adjoint(cotangent)
+                if hasattr(rad, "vjp_contributions"):
+                    return rad.vjp_contributions(raw)
+                return [radianceformat.VJPContribution(rad, raw, rad.vjp)]
+
+            return LinearizedRadianceGridded(
+                data,
+                matvec,
+                rmatvec,
+                radiance.n_state,
+                pullback=pullback,
+                selection_cache=self._linearized_selection_cache,
+                selection_path=("spectrograph",),
+                vjp_depth=getattr(radiance, "vjp_depth", 0) + 1,
+            )
 
         return radianceformat.RadianceGridded(data)
 
@@ -181,6 +247,7 @@ class SpectrographOnlySpectral(Sensor):
 
         self._cached_wavel_interp = None
         self._cached_wavel_interp_wavel = None
+        self._linearized_selection_cache = {}
 
         self._spectral_native_coordinate = spectral_native_coordinate
         self._assign_coord = assign_coord
@@ -222,7 +289,9 @@ class SpectrographOnlySpectral(Sensor):
 
         for k, mueller in self._stokes_sensitivity.items():
             stokes_applied_radiance = radiance.data["radiance"] @ xr.DataArray(
-                mueller, dims=["stokes"], coords={"stokes": ["I", "Q", "U", "V"]}
+                mueller,
+                dims=["stokes"],
+                coords={"stokes": ["I", "Q", "U", "V"]},
             )
 
             modelled_radiance = np.einsum(
@@ -266,7 +335,82 @@ class SpectrographOnlySpectral(Sensor):
                     if key != "radiance":
                         data[key] = radiance.data[key]
 
-            result[k] = radianceformat.RadianceGridded(data)
+            if hasattr(radiance, "jvp") and hasattr(radiance, "vjp"):
+                # Bind this channel's Mueller vector and output template.
+                def matvec(
+                    x,
+                    *,
+                    rad=radiance,
+                    w=wavel_interp,
+                    m=mueller,
+                    tmpl=data,
+                ):
+                    raw = rad.jvp(x)
+                    stokes_applied = raw @ xr.DataArray(
+                        m,
+                        dims=["stokes"],
+                        coords={"stokes": ["I", "Q", "U", "V"]},
+                    )
+                    values = np.einsum(
+                        "ij,jk...",
+                        w,
+                        stokes_applied.to_numpy(),
+                        optimize=True,
+                    )
+                    return xr.DataArray(
+                        values,
+                        dims=tmpl["radiance"].dims,
+                        coords=tmpl["radiance"].coords,
+                    )
+
+                def raw_cotangent(
+                    cotangent,
+                    *,
+                    rad=radiance,
+                    w=wavel_interp,
+                    m=mueller,
+                ):
+                    raw = rad.data["radiance"]
+                    # The adjoint first undoes spectral convolution, then the
+                    # Mueller projection by restoring the Stokes dimension.
+                    stokes_weight = (
+                        xr.DataArray(
+                            m,
+                            dims=["stokes"],
+                            coords={"stokes": ["I", "Q", "U", "V"]},
+                        )
+                        .reindex(stokes=raw["stokes"], fill_value=0)
+                        .to_numpy()
+                    )
+                    return np.einsum(
+                        "ij,ik...,l->jkl",
+                        w,
+                        np.asarray(cotangent),
+                        stokes_weight,
+                        optimize=True,
+                    )
+
+                def rmatvec(cotangent, *, rad=radiance, adjoint=raw_cotangent):
+                    return rad.vjp(adjoint(cotangent))
+
+                def pullback(cotangent, *, rad=radiance, adjoint=raw_cotangent):
+                    raw = adjoint(cotangent)
+                    if hasattr(rad, "vjp_contributions"):
+                        return rad.vjp_contributions(raw)
+                    return [radianceformat.VJPContribution(rad, raw, rad.vjp)]
+
+                result[k] = LinearizedRadianceGridded(
+                    data,
+                    matvec,
+                    rmatvec,
+                    radiance.n_state,
+                    pullback=pullback,
+                    selection_cache=self._linearized_selection_cache,
+                    selection_path=("spectrograph", k),
+                    vjp_depth=getattr(radiance, "vjp_depth", 0) + 1,
+                )
+            else:
+                result[k] = radianceformat.RadianceGridded(data)
 
         return result
 

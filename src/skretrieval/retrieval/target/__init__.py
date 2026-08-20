@@ -11,7 +11,67 @@ from skretrieval.retrieval import RetrievalTarget
 from skretrieval.retrieval.statevector import StateVector
 
 
+def _operator_matvec(operator, value: np.ndarray) -> np.ndarray:
+    if hasattr(operator, "jvp"):
+        return np.asarray(operator.jvp(value)).reshape(-1)
+    return np.asarray(operator.matvec(value)).reshape(-1)
+
+
+def _operator_rmatvec(operator, value: np.ndarray) -> np.ndarray:
+    if hasattr(operator, "vjp"):
+        return np.asarray(operator.vjp(value)).reshape(-1)
+    return np.asarray(operator.rmatvec(value)).reshape(-1)
+
+
+class _MappedJacobianOperator:
+    """Apply a diagonal state-coordinate mapping around a Jacobian operator."""
+
+    def __init__(self, operator, mapping: np.ndarray) -> None:
+        self._operator = operator
+        self._mapping = np.asarray(mapping).reshape(-1)
+        self.n_state = len(self._mapping)
+        operator_n_state = getattr(operator, "n_state", None)
+        if operator_n_state is None and hasattr(operator, "shape"):
+            operator_n_state = operator.shape[1]
+        if operator_n_state is not None and operator_n_state != self.n_state:
+            msg = "Jacobian operator and state-coordinate mapping sizes do not match"
+            raise ValueError(msg)
+        if hasattr(operator, "shape"):
+            n_measurement = operator.shape[0]
+        else:
+            n_measurement = len(operator.y)
+        self.shape = (n_measurement, self.n_state)
+
+    def matvec(self, value: np.ndarray) -> np.ndarray:
+        return _operator_matvec(self._operator, self._mapping * value)
+
+    def rmatvec(self, value: np.ndarray) -> np.ndarray:
+        return self._mapping * _operator_rmatvec(self._operator, value)
+
+    jvp = matvec
+    vjp = rmatvec
+
+
 class LogisticBoundingMixin:
+    def _jacobian_mapping(self, internal_state: np.ndarray | None = None) -> np.ndarray:
+        """Return the derivative of physical state with respect to internal state."""
+        if internal_state is None:
+            internal_state = self.state_vector()
+        bounded_state = self._map_internal_to_bounded(internal_state)
+        lower_bound = self.lower_bound()
+        upper_bound = self.upper_bound()
+        mapping = np.zeros_like(bounded_state)
+
+        unbounded = (lower_bound == -np.inf) & (upper_bound == np.inf)
+        bounded = (lower_bound != -np.inf) & (upper_bound != np.inf)
+        mapping[unbounded] = 1
+        mapping[bounded] = (
+            (bounded_state[bounded] - lower_bound[bounded])
+            * (upper_bound[bounded] - bounded_state[bounded])
+            / (upper_bound[bounded] - lower_bound[bounded])
+        )
+        return mapping
+
     def _map_bounded_to_internal(self, x: np.array) -> np.array:
         """
         Maps the bounded (user) state vector to the internal object
@@ -99,23 +159,12 @@ class LogisticBoundingMixin:
         """
         if not self._rescale_state_elements:
             return K
-        x = self._map_internal_to_bounded(self.state_vector())
-        lb = self.lower_bound()
-        ub = self.upper_bound()
-        mapping = np.zeros_like(x)
+        return K @ np.diag(self._jacobian_mapping())
 
-        no_map = (lb == -np.inf) & (ub == np.inf)
-
-        both_bounds = (lb != -np.inf) & (ub != np.inf)
-
-        mapping[no_map] = 1
-        mapping[both_bounds] = (
-            (x[both_bounds] - lb[both_bounds])
-            * (ub[both_bounds] - x[both_bounds])
-            / (ub[both_bounds] - lb[both_bounds])
-        )
-
-        return K @ np.diag(mapping)
+    def map_jacobian_operator(self, operator):
+        if not self._rescale_state_elements:
+            return operator
+        return _MappedJacobianOperator(operator, self._jacobian_mapping())
 
     def _map_inv_Sa_by_dinternal(self, x: np.array, inv_Sa: np.ndarray) -> np.ndarray:
         """
@@ -304,8 +353,15 @@ class GenericTarget(RetrievalTarget, LogisticBoundingMixin):
     def measurement_vector(self, l1_data: RadianceBase):
         result = self._internal_measurement_vector(l1_data)
 
+        return self._map_measurement_result(result)
+
+    def _map_measurement_result(self, result: dict) -> dict:
         if "jacobian" in result:
             result["jacobian"] = self.map_K(result["jacobian"])
+        if "jacobian_operator" in result:
+            result["jacobian_operator"] = self.map_jacobian_operator(
+                result["jacobian_operator"]
+            )
         return result
 
     @abc.abstractmethod

@@ -8,7 +8,7 @@ dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 license = {text = "MIT"}
-dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2>=2025.5.2', 'simpleeval']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2>=2026.8.0', 'simpleeval']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]
@@ -29,14 +29,20 @@ plotting = ["matplotlib"]
 
 [tool.pixi.project]
 channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64", "linux-ppc64le", "osx-64", "osx-arm64", "win-64"]
+platforms = ["linux-64", "linux-aarch64", "linux-ppc64le", "osx-arm64", "win-64"]
+
+[tool.pixi.system-requirements]
+macos = "14.0"
+
+[tool.pixi.target.osx-arm64.dependencies]
+# The SASKTRAN2 wheel bundles libomp, so use an OpenBLAS build without OpenMP.
+libopenblas = { version = "*", build = "pthreads_*" }
 
 [tool.pixi.pypi-dependencies]
 skretrieval = { path = ".", editable = true }
 
 [tool.pixi.dependencies]
 numpy = "*"
-sasktran2 = "*"
 astropy = "*"
 numba = "*"
 xarray = "*"

@@ -174,6 +174,97 @@ class StateVectorElementConstituent(
 
         return xr.concat(wfs, dim="x")
 
+    def supports_linearization_products(self) -> bool:
+        return True
+
+    def _linearization_parameter_name(
+        self, property_name: str, tangent_template: xr.Dataset
+    ) -> str:
+        candidates = [f"{self._constituent_name}_{property_name}"]
+        if property_name == "extinction_per_m":
+            candidates.append(f"{self._constituent_name}_extinction")
+
+        for candidate in candidates:
+            if candidate in tangent_template:
+                return candidate
+
+        msg = (
+            "SASKTRAN2 linearization does not contain a derivative for "
+            f"{self._constituent_name}.{property_name}. Tried: "
+            f"{', '.join(candidates)}"
+        )
+        raise KeyError(msg)
+
+    def linearization_parameter_names(
+        self, tangent_template: xr.Dataset
+    ) -> tuple[str, ...]:
+        return tuple(
+            self._linearization_parameter_name(property_name, tangent_template)
+            for property_name in self._property_names
+        )
+
+    def _state_to_native_tangent(self, property_name: str, x: np.ndarray) -> np.ndarray:
+        """Apply the derivative of constituent property with respect to state."""
+        if self._log_space:
+            current = np.atleast_1d(getattr(self._constituent, property_name))
+            return current * x
+        return x / self._scale_factor
+
+    def _native_gradient_to_state(
+        self, property_name: str, gradient: np.ndarray
+    ) -> np.ndarray:
+        """Apply the adjoint of ``_state_to_native_tangent``."""
+        if self._log_space:
+            current = np.atleast_1d(getattr(self._constituent, property_name))
+            return gradient * current
+        return gradient / self._scale_factor
+
+    def add_to_linearization_tangent(
+        self,
+        tangent: dict[str, xr.DataArray],
+        x: np.ndarray,
+        tangent_template: xr.Dataset,
+    ) -> None:
+        start = 0
+        for property_name in self._property_names:
+            current = np.atleast_1d(getattr(self._constituent, property_name))
+            end = start + len(current)
+            parameter_name = self._linearization_parameter_name(
+                property_name, tangent_template
+            )
+            template = tangent_template[parameter_name]
+            values = self._state_to_native_tangent(property_name, x[start:end])
+            direction = xr.DataArray(
+                values.reshape(template.shape),
+                dims=template.dims,
+                coords=template.coords,
+            )
+            if parameter_name in tangent:
+                tangent[parameter_name] = tangent[parameter_name] + direction
+            else:
+                tangent[parameter_name] = direction
+            start = end
+
+    def linearization_gradient(
+        self,
+        gradient: xr.Dataset,
+        tangent_template: xr.Dataset,
+    ) -> np.ndarray:
+        parts = []
+        for property_name in self._property_names:
+            parameter_name = self._linearization_parameter_name(
+                property_name, tangent_template
+            )
+            if parameter_name in gradient:
+                native_gradient = np.asarray(gradient[parameter_name]).reshape(-1)
+            else:
+                native_gradient = np.zeros(
+                    np.size(np.atleast_1d(getattr(self._constituent, property_name)))
+                )
+            parts.append(self._native_gradient_to_state(property_name, native_gradient))
+
+        return np.concatenate(parts)
+
     def update_state(self, x: np.array):
         start = 0
         for property_name in self._property_names:
@@ -230,11 +321,12 @@ class StateVectorElementConstituent(
                 dims=[self._constituent._interp_var],
                 coords={self._constituent._interp_var: self._constituent._x},
             )
-            ds[self._constituent_name + "_1sigma_error"] = xr.DataArray(
-                np.sqrt(np.diag(kwargs["covariance"])),
-                dims=[self._constituent._interp_var],
-                coords={self._constituent._interp_var: self._constituent._x},
-            )
+            if "covariance" in kwargs:
+                ds[self._constituent_name + "_1sigma_error"] = xr.DataArray(
+                    np.sqrt(np.diag(kwargs["covariance"])),
+                    dims=[self._constituent._interp_var],
+                    coords={self._constituent._interp_var: self._constituent._x},
+                )
 
         else:
             start = 0

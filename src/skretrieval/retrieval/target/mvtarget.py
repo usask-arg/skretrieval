@@ -34,7 +34,16 @@ class MeasVecTarget(GenericTarget):
         self._context = context
 
     def _internal_measurement_vector(self, l1_data: dict[RadianceGridded]):
-        l1 = pre_process(l1_data, len(self.state_vector()))
+        return self._measurement_vector(l1_data, include_error=True)
+
+    def matrix_free_measurement_vector(self, l1_data: dict[RadianceGridded]):
+        result = self._measurement_vector(l1_data, include_error=False)
+        return self._map_measurement_result(result)
+
+    def _measurement_vector(
+        self, l1_data: dict[RadianceGridded], *, include_error: bool
+    ):
+        l1 = pre_process(l1_data, len(self.state_vector()), include_error=include_error)
 
         res = []
         for _, v in self._measurement_vectors.items():

@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
+import numpy as np
 import xarray as xr
+
+from skretrieval.core.radianceformat import (
+    VJPContribution,
+    evaluate_vjp_contributions,
+)
 
 
 class SASKTRANRadiance:
@@ -125,3 +133,74 @@ class SASKTRANRadiance:
                 assert "stokes" in self.data[var].dims
                 assert "los" in self.data[var].dims
                 assert "spectral_grid" in self.data[var].dims
+
+
+class LinearizedSASKTRANRadiance(SASKTRANRadiance):
+    """SASKTRAN radiance backed by a SASKTRAN2 linearization object."""
+
+    def __init__(
+        self,
+        ds: xr.Dataset,
+        matvec: Callable[[np.ndarray], xr.DataArray],
+        rmatvec: Callable[[xr.DataArray], np.ndarray],
+        n_state: int,
+        sk2_radiance_template: xr.DataArray,
+    ) -> None:
+        super().__init__(ds, collapse_scalar_stokes=False)
+        self._matvec = matvec
+        self._rmatvec = rmatvec
+        self._n_state = n_state
+        self._sk2_radiance_template = sk2_radiance_template
+
+    @classmethod
+    def from_sasktran2_linearization(
+        cls,
+        radiance: xr.DataArray,
+        matvec: Callable[[np.ndarray], xr.DataArray],
+        rmatvec: Callable[[xr.DataArray], np.ndarray],
+        n_state: int,
+    ) -> LinearizedSASKTRANRadiance:
+        converted = SASKTRANRadiance.from_sasktran2(
+            xr.Dataset({"radiance": radiance}), collapse_scalar_stokes=False
+        )
+        return cls(
+            converted.data,
+            matvec,
+            rmatvec,
+            n_state,
+            sk2_radiance_template=radiance,
+        )
+
+    @property
+    def n_state(self) -> int:
+        return self._n_state
+
+    @property
+    def vjp_depth(self) -> int:
+        return 0
+
+    def jvp(self, x: np.ndarray) -> xr.DataArray:
+        result = self._matvec(x)
+        converted = SASKTRANRadiance.from_sasktran2(
+            xr.Dataset({"radiance": result}), collapse_scalar_stokes=False
+        )
+        return converted.data["radiance"]
+
+    def _as_sasktran2_cotangent(self, cotangent: np.ndarray) -> xr.DataArray:
+        radiance = self.data["radiance"]
+        template = self._sk2_radiance_template
+        return xr.DataArray(
+            np.asarray(cotangent).reshape(radiance.shape).reshape(template.shape),
+            dims=template.dims,
+            coords=template.coords,
+        )
+
+    def vjp_contributions(self, cotangent: xr.DataArray) -> list[VJPContribution]:
+        cotangent = np.asarray(cotangent).reshape(self.data["radiance"].shape)
+        return [VJPContribution(self, cotangent, self._continue_vjp)]
+
+    def _continue_vjp(self, cotangent: np.ndarray) -> np.ndarray:
+        return self._rmatvec(self._as_sasktran2_cotangent(cotangent))
+
+    def vjp(self, cotangent: xr.DataArray) -> np.ndarray:
+        return evaluate_vjp_contributions(self.vjp_contributions(cotangent))

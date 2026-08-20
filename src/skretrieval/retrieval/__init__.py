@@ -38,7 +38,6 @@ class RetrievalTarget(ABC):
     @abstractmethod
     def measurement_vector(self, l1_data: RadianceBase):
         """
-
         Parameters
         ----------
         l1_data: RadianceBase
@@ -51,6 +50,13 @@ class RetrievalTarget(ABC):
             Keys 'y' for the measurement vector, 'jacobian' for the jacobian of the measurement vector (if weighting
             functions are in l1_data, 'y_error' the covariance of 'y' (if error information is provided in l1_data)
         """
+
+    def matrix_free_measurement_vector(self, l1_data: RadianceBase):
+        """Evaluate modeled measurements used inside matrix-free optimization.
+
+        Targets may override this when modeled error covariance is unnecessary.
+        """
+        return self.measurement_vector(l1_data)
 
     @abstractmethod
     def update_state(self, x: np.ndarray):

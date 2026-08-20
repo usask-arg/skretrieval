@@ -59,6 +59,38 @@ class StateVectorElement(abc.ABC):
     def modify_input_radiance(self, radiance: xr.Dataset):
         return radiance
 
+    def supports_linearization_products(self) -> bool:
+        return False
+
+    def linearization_parameter_names(
+        self, tangent_template: xr.Dataset
+    ) -> tuple[str, ...]:
+        msg = (
+            f"{type(self).__name__} does not support matrix-free linearization products"
+        )
+        raise NotImplementedError(msg)
+
+    def add_to_linearization_tangent(
+        self,
+        tangent: dict[str, xr.DataArray],
+        x: np.ndarray,
+        tangent_template: xr.Dataset,
+    ) -> None:
+        msg = (
+            f"{type(self).__name__} does not support matrix-free linearization products"
+        )
+        raise NotImplementedError(msg)
+
+    def linearization_gradient(
+        self,
+        gradient: xr.Dataset,
+        tangent_template: xr.Dataset,
+    ) -> np.ndarray:
+        msg = (
+            f"{type(self).__name__} does not support matrix-free linearization products"
+        )
+        raise NotImplementedError(msg)
+
     def describe(self, **kwargs) -> xr.Dataset | None:
         return None
 
@@ -115,22 +147,85 @@ class StateVector:
             radiance = radiance.drop(wf_names)
         return radiance
 
+    def check_linearization_product_support(self):
+        """Reject enabled state elements that cannot map JVP/VJP products."""
+        unsupported = [
+            state_element.name()
+            for state_element in self._elements
+            if state_element.enabled
+            and not state_element.supports_linearization_products()
+        ]
+        if unsupported:
+            names = ", ".join(unsupported)
+            msg = (
+                "Matrix-free retrieval only supports product-aware state "
+                f"elements. Unsupported enabled element(s): {names}"
+            )
+            raise NotImplementedError(msg)
+
+    def linearization_parameter_names(
+        self, tangent_template: xr.Dataset
+    ) -> tuple[str, ...]:
+        """Return the active SASKTRAN2 derivative parameter names."""
+        names = []
+        for state_element in self._elements:
+            if state_element.enabled:
+                names.extend(
+                    state_element.linearization_parameter_names(tangent_template)
+                )
+        return tuple(dict.fromkeys(names))
+
+    def linearization_tangent(
+        self, x: np.ndarray, tangent_template: xr.Dataset
+    ) -> xr.Dataset:
+        """Map a retrieval-state direction into SASKTRAN2 parameter space."""
+        tangent: dict[str, xr.DataArray] = {}
+        start = 0
+        for state_element in self._elements:
+            if not state_element.enabled:
+                continue
+
+            end = start + len(state_element.state())
+            state_element.add_to_linearization_tangent(
+                tangent, x[start:end], tangent_template
+            )
+            start = end
+
+        return xr.Dataset(tangent)
+
+    def linearization_gradient(
+        self, gradient: xr.Dataset, tangent_template: xr.Dataset
+    ) -> np.ndarray:
+        """Map a SASKTRAN2 VJP result back into retrieval-state space."""
+        parts = []
+        for state_element in self._elements:
+            if state_element.enabled:
+                parts.append(
+                    state_element.linearization_gradient(gradient, tangent_template)
+                )
+        if not parts:
+            return np.array([])
+        return np.concatenate(parts)
+
     def describe(self, rodgers_output: dict, **kwargs) -> xr.Dataset:
         all_ds = []
 
-        covar = rodgers_output["error_covariance_from_noise"]
-        averaging_kernel = rodgers_output["averaging_kernel"]
+        covar = rodgers_output.get("error_covariance_from_noise")
+        averaging_kernel = rodgers_output.get("averaging_kernel")
 
         start = 0
         for state_element in self._elements:
             end = start + len(state_element.state())
+            state_slice = slice(start, end)
+            describe_kwargs = dict(kwargs)
+            if covar is not None:
+                describe_kwargs["covariance"] = covar[state_slice, state_slice]
+            if averaging_kernel is not None:
+                describe_kwargs["averaging_kernel"] = averaging_kernel[
+                    state_slice, state_slice
+                ]
 
-            s = slice(start, end)
-            ds = state_element.describe(
-                covariance=covar[s, s],
-                averaging_kernel=averaging_kernel[s, s],
-                **kwargs,
-            )
+            ds = state_element.describe(**describe_kwargs)
             if ds is not None:
                 all_ds.append(ds)
 
