@@ -17,7 +17,7 @@ class MeasVecTarget(GenericTarget):
         state_vector: StateVector,
         measurement_vectors: dict[MeasurementVector],
         context: dict,
-        rescale_state_space: bool = False,
+        rescale_state_space: bool | str = False,
     ):
         """
         A target where the measurement vector is calculated through MeasurementVector objects
@@ -26,8 +26,11 @@ class MeasVecTarget(GenericTarget):
         ----------
         state_vector : StateVector
         measurement_vectors : dict[MeasurementVector]
-        rescale_state_space : bool, optional
-            If true, the state vectors are internally scaled to be within their min and max values, by default False
+        rescale_state_space : bool or str, optional
+            True or ``"logistic"`` applies an unbounded logistic transform.
+            ``"affine"`` applies fixed initial-state scaling for a bounded
+            optimizer. False leaves state coordinates unchanged, by default
+            False.
         """
         super().__init__(state_vector, rescale_state_elements=rescale_state_space)
         self._measurement_vectors = measurement_vectors

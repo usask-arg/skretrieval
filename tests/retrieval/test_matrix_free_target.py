@@ -5,6 +5,27 @@ import numpy as np
 from skretrieval.retrieval.target import LogisticBoundingMixin
 
 
+def test_logistic_bound_mapping_keeps_exact_endpoints_finite():
+    class Target(LogisticBoundingMixin):
+        _rescale_state_elements = True
+
+        def lower_bound(self):
+            return np.array([1.0e-15, 0.0])
+
+        def upper_bound(self):
+            return np.array([1.0e-2, 1.0])
+
+    target = Target()
+    bounded = np.array([1.0e-15, 1.0])
+    internal = target._map_bounded_to_internal(bounded)
+    round_trip = target._map_internal_to_bounded(internal)
+
+    assert np.all(np.isfinite(internal))
+    assert np.all(round_trip > target.lower_bound())
+    assert np.all(round_trip < target.upper_bound())
+    np.testing.assert_allclose(round_trip, bounded, rtol=0.0, atol=1.0e-15)
+
+
 def test_logistic_bound_mapping_wraps_operator_without_mutating_it():
     jacobian = np.array([[1.0, -2.0], [0.5, 3.0], [-1.5, 0.25]])
 

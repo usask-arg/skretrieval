@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
+from time import perf_counter
 
 import numpy as np
 from scipy import sparse
-from scipy.optimize import least_squares, minimize
+from scipy.optimize import OptimizeResult, least_squares, minimize
 from scipy.optimize._optimize import MemoizeJac
 from scipy.sparse.linalg import LinearOperator
 
@@ -14,7 +15,7 @@ from skretrieval.retrieval import ForwardModel, Minimizer, RetrievalTarget
 from skretrieval.retrieval.erroranalysis import (
     estimate_error,
     estimate_error_from_operator,
-    information_sqrt,
+    estimate_fisher_diagonal_error_from_operator,
 )
 
 
@@ -95,11 +96,14 @@ class _MatrixFreeProblem:
     initial_state: np.ndarray
     lower_bound: np.ndarray
     upper_bound: np.ndarray
-    inverse_apriori_covariance: np.ndarray
-    prior_whitener: np.ndarray
+    inverse_apriori_covariance: np.ndarray | sparse.spmatrix
+    prior_whitener: np.ndarray | sparse.spmatrix | None
     measurement: np.ndarray
     weighting: _MeasurementWeighting
     state_scale: np.ndarray
+    output_state_mapping: np.ndarray
+    averaging_kernel_row_sum_groups: np.ndarray
+    averaging_kernel_resolution_coordinates: dict[str, np.ndarray]
     cache: _LinearizedMeasurementCache
 
     @property
@@ -115,6 +119,10 @@ class _MatrixFreeProblem:
         first = self.lower_bound / self.state_scale
         second = self.upper_bound / self.state_scale
         return np.minimum(first, second), np.maximum(first, second)
+
+    @property
+    def n_prior_residual(self) -> int:
+        return 0 if self.prior_whitener is None else int(self.prior_whitener.shape[0])
 
 
 class _LinearizedMeasurementCache:
@@ -262,9 +270,19 @@ class SciPyMinimizer(Minimizer):
         matrix_free_fallback="raise",
         tr_options: dict | None = None,
         matrix_free_diagnostics="full",
+        fisher_diagonal_probe_count=32,
+        posterior_diagonal_probe_count=1024,
+        posterior_diagonal_probe_batch_size=32,
+        diagonal_error_random_seed=0,
+        averaging_kernel_row_sum_mode="approximate",
+        averaging_kernel_resolution_mode="approximate",
+        averaging_kernel_row_sum_rtol=1.0e-3,
+        averaging_kernel_row_sum_maxiter=30,
         matrix_free_solver="lsmr",
         minimize_options: dict | None = None,
         materialized_jacobian_source="calculate_radiance",
+        diagnostic_only=False,
+        verbose=2,
         **kwargs,
     ) -> None:
         """
@@ -318,8 +336,42 @@ class SciPyMinimizer(Minimizer):
         matrix_free_diagnostics : str, optional
             Diagnostic strategy for matrix-free retrievals. ``"full"`` forms
             covariance and averaging-kernel diagnostics by repeated products.
+            ``"fisher_diagonal"`` estimates the measurement-information
+            diagonal with VJP-only randomized probes, retains the complete
+            sparse prior precision, and returns an approximate posterior
+            covariance diagonal without dense state matrices.
             ``"none"`` skips those post-solve diagnostics and avoids the extra
             product calls.
+        fisher_diagonal_probe_count : int, optional
+            Number of measurement-space VJP probes used by the fast diagonal
+            diagnostic, by default 32.
+        posterior_diagonal_probe_count : int, optional
+            Number of inexpensive sparse inverse probes used after estimating
+            the Fisher diagonal, by default 1024.
+        posterior_diagonal_probe_batch_size : int, optional
+            Number of sparse inverse right-hand sides solved together, by
+            default 32.
+        diagonal_error_random_seed : int, optional
+            Deterministic seed for both randomized diagonal estimators, by
+            default 0.
+        averaging_kernel_row_sum_mode : str, optional
+            ``"approximate"`` returns within-state-element row sums from the
+            diagonal-Fisher information matrix at negligible extra cost.
+            ``"matrix_free"`` solves for full-Hessian row sums with
+            preconditioned CG, and ``"none"`` disables the diagnostic. The
+            default is ``"approximate"``.
+        averaging_kernel_resolution_mode : str, optional
+            ``"approximate"`` computes Gaussian-equivalent FWHM resolution
+            from sparse diagonal-Fisher averaging-kernel moments.
+            ``"matrix_free"`` evaluates the same moments with full-Hessian
+            JVP/VJP products and requires matrix-free row sums. ``"none"``
+            disables resolution diagnostics. The default is ``"approximate"``.
+        averaging_kernel_row_sum_rtol : float, optional
+            Relative tolerance for the optional matrix-free row-sum solve, by
+            default 1e-3.
+        averaging_kernel_row_sum_maxiter : int, optional
+            Maximum preconditioned CG iterations for matrix-free row sums, by
+            default 30.
         matrix_free_solver : str, optional
             Matrix-free optimizer to use. ``"lsmr"`` uses
             :py:func:`scipy.optimize.least_squares` with a
@@ -334,6 +386,12 @@ class SciPyMinimizer(Minimizer):
             function path, while ``"linearization"`` calls
             ``Engine.linearize(...).jacobian`` and materializes the Jacobian
             through SASKTRAN2's linearization object.
+        diagnostic_only : bool, optional
+            Evaluate matrix-free diagnostics at the supplied initial state
+            without taking an optimization step, by default False.
+        verbose : int, optional
+            SciPy optimizer reporting level: 0 is silent, 1 reports
+            termination, and 2 reports every iteration. The default is 2.
         """
         self._method = method
         self._ftol = ftol
@@ -347,11 +405,21 @@ class SciPyMinimizer(Minimizer):
         self._matrix_free_fallback = matrix_free_fallback
         self._tr_options = dict(tr_options) if tr_options is not None else {}
         self._matrix_free_diagnostics = matrix_free_diagnostics
+        self._fisher_diagonal_probe_count = fisher_diagonal_probe_count
+        self._posterior_diagonal_probe_count = posterior_diagonal_probe_count
+        self._posterior_diagonal_probe_batch_size = posterior_diagonal_probe_batch_size
+        self._diagonal_error_random_seed = diagonal_error_random_seed
+        self._averaging_kernel_row_sum_mode = averaging_kernel_row_sum_mode
+        self._averaging_kernel_resolution_mode = averaging_kernel_resolution_mode
+        self._averaging_kernel_row_sum_rtol = averaging_kernel_row_sum_rtol
+        self._averaging_kernel_row_sum_maxiter = averaging_kernel_row_sum_maxiter
         self._matrix_free_solver = matrix_free_solver
         self._minimize_options = (
             dict(minimize_options) if minimize_options is not None else {}
         )
         self._materialized_jacobian_source = materialized_jacobian_source
+        self._diagnostic_only = bool(diagnostic_only)
+        self._verbose = verbose
 
         self._apply_state_scaling = apply_state_scaling
 
@@ -366,8 +434,72 @@ class SciPyMinimizer(Minimizer):
         if self._matrix_free_fallback not in {"materialized", "raise"}:
             msg = "matrix_free_fallback must be 'materialized' or 'raise'"
             raise ValueError(msg)
-        if self._matrix_free_diagnostics not in {"full", "none"}:
-            msg = "matrix_free_diagnostics must be 'full' or 'none'"
+        if self._matrix_free_diagnostics not in {
+            "full",
+            "fisher_diagonal",
+            "none",
+        }:
+            msg = "matrix_free_diagnostics must be 'full', 'fisher_diagonal', or 'none'"
+            raise ValueError(msg)
+        diagonal_counts = {
+            "fisher_diagonal_probe_count": self._fisher_diagonal_probe_count,
+            "posterior_diagonal_probe_count": (self._posterior_diagonal_probe_count),
+            "posterior_diagonal_probe_batch_size": (
+                self._posterior_diagonal_probe_batch_size
+            ),
+        }
+        for name, value in diagonal_counts.items():
+            if isinstance(value, bool | np.bool_) or int(value) != value or value < 1:
+                msg = f"{name} must be a positive integer"
+                raise ValueError(msg)
+        if (
+            isinstance(self._diagonal_error_random_seed, bool | np.bool_)
+            or int(self._diagonal_error_random_seed) != self._diagonal_error_random_seed
+        ):
+            msg = "diagonal_error_random_seed must be an integer"
+            raise ValueError(msg)
+        if self._averaging_kernel_row_sum_mode not in {
+            "approximate",
+            "matrix_free",
+            "none",
+        }:
+            msg = (
+                "averaging_kernel_row_sum_mode must be 'approximate', "
+                "'matrix_free', or 'none'"
+            )
+            raise ValueError(msg)
+        if self._averaging_kernel_resolution_mode not in {
+            "approximate",
+            "matrix_free",
+            "none",
+        }:
+            msg = (
+                "averaging_kernel_resolution_mode must be 'approximate', "
+                "'matrix_free', or 'none'"
+            )
+            raise ValueError(msg)
+        if (
+            self._averaging_kernel_resolution_mode == "matrix_free"
+            and self._averaging_kernel_row_sum_mode != "matrix_free"
+        ):
+            msg = (
+                "matrix-free averaging-kernel resolution requires "
+                "averaging_kernel_row_sum_mode='matrix_free'"
+            )
+            raise ValueError(msg)
+        if (
+            not np.isfinite(self._averaging_kernel_row_sum_rtol)
+            or self._averaging_kernel_row_sum_rtol <= 0
+        ):
+            msg = "averaging_kernel_row_sum_rtol must be finite and positive"
+            raise ValueError(msg)
+        if (
+            isinstance(self._averaging_kernel_row_sum_maxiter, bool | np.bool_)
+            or int(self._averaging_kernel_row_sum_maxiter)
+            != self._averaging_kernel_row_sum_maxiter
+            or self._averaging_kernel_row_sum_maxiter < 1
+        ):
+            msg = "averaging_kernel_row_sum_maxiter must be a positive integer"
             raise ValueError(msg)
         if self._matrix_free_solver not in {"lsmr", "lbfgsb"}:
             msg = "matrix_free_solver must be 'lsmr' or 'lbfgsb'"
@@ -380,6 +512,9 @@ class SciPyMinimizer(Minimizer):
                 "materialized_jacobian_source must be 'calculate_radiance' "
                 "or 'linearization'"
             )
+            raise ValueError(msg)
+        if self._verbose not in {0, 1, 2}:
+            msg = "verbose must be 0, 1, or 2"
             raise ValueError(msg)
         if self._num_passes < 1:
             msg = "num_passes must be at least 1"
@@ -577,7 +712,7 @@ class SciPyMinimizer(Minimizer):
                 x0=x_scaler_inv @ initial_guess,
                 jac=jac,
                 x_scale=self._x_scale,
-                verbose=2,
+                verbose=self._verbose,
                 tr_solver=self._tr_solver,
                 max_nfev=self._max_nfev,
                 tr_options=self._least_squares_tr_options(),
@@ -623,6 +758,43 @@ class SciPyMinimizer(Minimizer):
         if not hasattr(forward_model, "calculate_linearized_radiance"):
             msg = "Forward model does not provide calculate_linearized_radiance()"
             raise MatrixFreeUnsupportedError(msg)
+        solver_start = perf_counter()
+        if self._diagnostic_only:
+            if self._matrix_free_diagnostics == "none":
+                msg = "diagnostic_only requires matrix_free_diagnostics"
+                raise ValueError(msg)
+            problem = self._matrix_free_problem(
+                measurement_l1,
+                forward_model,
+                retrieval_target,
+                construct_prior_whitener=True,
+            )
+            results = self._matrix_free_diagnostic_results(
+                problem,
+                problem.weighting,
+                problem.solver_initial_state,
+            )
+            results.update(
+                minimizer=OptimizeResult(
+                    x=problem.solver_initial_state,
+                    fun=np.nan,
+                    cost=np.nan,
+                    jac=np.full_like(problem.solver_initial_state, np.nan),
+                    optimality=np.nan,
+                    nit=0,
+                    nfev=0,
+                    njev=0,
+                    success=True,
+                    message="Diagnostic-only evaluation at the supplied state",
+                ),
+                jvp_calls=0,
+                vjp_calls=0,
+                jvp_runtime_s=0.0,
+                vjp_runtime_s=0.0,
+                diagnostic_only=True,
+            )
+            results["solver_wall_time_s"] = perf_counter() - solver_start
+            return retrieval_target.state_vector_error_output(results)
         if self._matrix_free_solver == "lbfgsb":
             results = self._retrieve_matrix_free_lbfgsb(
                 measurement_l1, forward_model, retrieval_target
@@ -631,6 +803,7 @@ class SciPyMinimizer(Minimizer):
             results = self._retrieve_matrix_free_lsmr(
                 measurement_l1, forward_model, retrieval_target
             )
+        results["solver_wall_time_s"] = perf_counter() - solver_start
         return retrieval_target.state_vector_error_output(results)
 
     def _matrix_free_problem(
@@ -638,6 +811,8 @@ class SciPyMinimizer(Minimizer):
         measurement_l1: RadianceBase,
         forward_model: ForwardModel,
         retrieval_target: RetrievalTarget,
+        *,
+        construct_prior_whitener: bool = True,
     ) -> _MatrixFreeProblem:
         initial_state = np.asarray(
             retrieval_target.state_vector(), dtype=float
@@ -654,7 +829,9 @@ class SciPyMinimizer(Minimizer):
                 (len(initial_state), len(initial_state))
             )
         elif sparse.issparse(inverse_apriori_covariance):
-            inverse_apriori_covariance = inverse_apriori_covariance.toarray()
+            inverse_apriori_covariance = inverse_apriori_covariance.astype(
+                float
+            ).tocsr()
         else:
             inverse_apriori_covariance = np.asarray(
                 inverse_apriori_covariance, dtype=float
@@ -701,6 +878,49 @@ class SciPyMinimizer(Minimizer):
             msg = "Retrieval bounds size does not match the retrieval state"
             raise ValueError(msg)
 
+        prior_whitener = None
+        if construct_prior_whitener:
+            prior_whitener = retrieval_target.prior_precision_factor()
+            if sparse.issparse(prior_whitener):
+                prior_whitener = prior_whitener.astype(float).tocsr()
+            else:
+                prior_whitener = np.asarray(prior_whitener, dtype=float)
+            if prior_whitener.ndim != 2 or prior_whitener.shape[1] != len(
+                initial_state
+            ):
+                msg = (
+                    "A priori precision factor must be two-dimensional with "
+                    "one column per state element"
+                )
+                raise ValueError(msg)
+
+        output_state_mapping = np.asarray(
+            retrieval_target.output_state_derivative_by_retrieval_state(),
+            dtype=float,
+        ).reshape(-1)
+        if output_state_mapping.shape != initial_state.shape:
+            msg = "Output-state derivative size does not match the retrieval state"
+            raise ValueError(msg)
+        averaging_kernel_row_sum_groups = np.asarray(
+            retrieval_target.averaging_kernel_row_sum_groups(),
+        ).reshape(-1)
+        if averaging_kernel_row_sum_groups.shape != initial_state.shape:
+            msg = "Averaging-kernel row-sum groups must match the retrieval state"
+            raise ValueError(msg)
+        averaging_kernel_resolution_coordinates = {
+            name: np.asarray(values, dtype=float).reshape(-1)
+            for name, values in (
+                retrieval_target.averaging_kernel_resolution_coordinates().items()
+            )
+        }
+        for name, values in averaging_kernel_resolution_coordinates.items():
+            if values.shape != initial_state.shape:
+                msg = (
+                    f"Averaging-kernel resolution coordinate {name} must match "
+                    "the retrieval state"
+                )
+                raise ValueError(msg)
+
         cache = _LinearizedMeasurementCache(
             forward_model,
             retrieval_target,
@@ -713,12 +933,15 @@ class SciPyMinimizer(Minimizer):
             lower_bound=lower_bound,
             upper_bound=upper_bound,
             inverse_apriori_covariance=inverse_apriori_covariance,
-            prior_whitener=information_sqrt(
-                inverse_apriori_covariance, "A priori inverse covariance"
-            ),
+            prior_whitener=prior_whitener,
             measurement=y_meas,
             weighting=weighting,
             state_scale=state_scale,
+            output_state_mapping=output_state_mapping,
+            averaging_kernel_row_sum_groups=averaging_kernel_row_sum_groups,
+            averaging_kernel_resolution_coordinates=(
+                averaging_kernel_resolution_coordinates
+            ),
             cache=cache,
         )
 
@@ -731,13 +954,41 @@ class SciPyMinimizer(Minimizer):
         scale[scale < 1] = 1
         return scale
 
-    @staticmethod
     def _matrix_free_diagnostic_results(
+        self,
         problem: _MatrixFreeProblem,
         weighting: _MeasurementWeighting,
         solver_state: np.ndarray,
     ) -> dict:
         evaluated = problem.cache.evaluate(solver_state)
+        if self._matrix_free_diagnostics == "fisher_diagonal":
+            return estimate_fisher_diagonal_error_from_operator(
+                evaluated["operator"],
+                weighting.inverse_covariance,
+                problem.inverse_apriori_covariance,
+                prior_precision_factor=problem.prior_whitener,
+                output_state_derivative_by_retrieval_state=(
+                    problem.output_state_mapping
+                ),
+                averaging_kernel_row_sum_groups=(
+                    problem.averaging_kernel_row_sum_groups
+                ),
+                averaging_kernel_resolution_coordinates=(
+                    problem.averaging_kernel_resolution_coordinates
+                ),
+                fisher_probe_count=self._fisher_diagonal_probe_count,
+                posterior_probe_count=self._posterior_diagonal_probe_count,
+                posterior_probe_batch_size=(self._posterior_diagonal_probe_batch_size),
+                random_seed=self._diagonal_error_random_seed,
+                averaging_kernel_row_sum_mode=(self._averaging_kernel_row_sum_mode),
+                averaging_kernel_resolution_mode=(
+                    self._averaging_kernel_resolution_mode
+                ),
+                averaging_kernel_row_sum_rtol=(self._averaging_kernel_row_sum_rtol),
+                averaging_kernel_row_sum_maxiter=(
+                    self._averaging_kernel_row_sum_maxiter
+                ),
+            )
         return estimate_error_from_operator(
             evaluated["operator"],
             weighting.inverse_covariance,
@@ -754,23 +1005,50 @@ class SciPyMinimizer(Minimizer):
             msg = "Matrix-free SciPy retrieval requires method='trf' or method='dogbox'"
             raise MatrixFreeUnsupportedError(msg)
         problem = self._matrix_free_problem(
-            measurement_l1, forward_model, retrieval_target
+            measurement_l1,
+            forward_model,
+            retrieval_target,
+            construct_prior_whitener=True,
         )
         cache = problem.cache
         weighting = problem.weighting
         # Match the normalization used by the existing materialized residual.
         normalization = np.sqrt(len(problem.measurement) / 2)
         solver_apriori = problem.solver_apriori_state
+        objective_history = []
+        measurement_objective_history = []
+        prior_objective_history = []
+        evaluation_runtime_history_s = []
+        product_statistics = {
+            "jvp_calls": 0,
+            "vjp_calls": 0,
+            "jvp_runtime_s": 0.0,
+            "vjp_runtime_s": 0.0,
+        }
 
         def residual_fun(x):
+            evaluation_start = perf_counter()
             evaluated = cache.evaluate(x)
             measurement_residual = weighting.apply(evaluated["y"] - problem.measurement)
             prior_residual = problem.prior_whitener @ (
                 problem.state_scale * (x - solver_apriori)
             )
-            return (
+            residual = (
                 np.concatenate((measurement_residual, prior_residual)) / normalization
             )
+            objective_history.append(float(0.5 * (residual @ residual)))
+            measurement_objective_history.append(
+                float(
+                    0.5
+                    * (measurement_residual @ measurement_residual)
+                    / normalization**2
+                )
+            )
+            prior_objective_history.append(
+                float(0.5 * (prior_residual @ prior_residual) / normalization**2)
+            )
+            evaluation_runtime_history_s.append(perf_counter() - evaluation_start)
+            return residual
 
         def jacobian_fun(x):
             # The LinearOperator must stay tied to the state where SciPy requested it.
@@ -780,13 +1058,18 @@ class SciPyMinimizer(Minimizer):
                 return cache.evaluate(anchor_x)["operator"]
 
             def matvec(dx):
+                product_start = perf_counter()
                 dx = np.asarray(dx).reshape(-1)
                 target_direction = problem.state_scale * dx
                 measurement_part = weighting.apply(operator().matvec(target_direction))
                 prior_part = problem.prior_whitener @ target_direction
-                return np.concatenate((measurement_part, prior_part)) / normalization
+                result = np.concatenate((measurement_part, prior_part)) / normalization
+                product_statistics["jvp_calls"] += 1
+                product_statistics["jvp_runtime_s"] += perf_counter() - product_start
+                return result
 
             def rmatvec(cotangent):
+                product_start = perf_counter()
                 cotangent = np.asarray(cotangent).reshape(-1)
                 measurement_cotangent = cotangent[: len(problem.measurement)]
                 prior_cotangent = cotangent[len(problem.measurement) :]
@@ -794,13 +1077,16 @@ class SciPyMinimizer(Minimizer):
                     weighting.adjoint(measurement_cotangent)
                 )
                 prior_part = problem.prior_whitener.T @ prior_cotangent
-                return (
+                result = (
                     problem.state_scale * (measurement_part + prior_part)
                 ) / normalization
+                product_statistics["vjp_calls"] += 1
+                product_statistics["vjp_runtime_s"] += perf_counter() - product_start
+                return result
 
             return LinearOperator(
                 (
-                    len(problem.measurement) + len(problem.apriori_state),
+                    len(problem.measurement) + problem.n_prior_residual,
                     len(problem.apriori_state),
                 ),
                 matvec=matvec,
@@ -829,7 +1115,7 @@ class SciPyMinimizer(Minimizer):
                 x0=solver_initial,
                 jac=jacobian_fun,
                 x_scale=effective_x_scale,
-                verbose=2,
+                verbose=self._verbose,
                 tr_solver="lsmr",
                 max_nfev=self._max_nfev,
                 tr_options=self._least_squares_tr_options(),
@@ -847,12 +1133,22 @@ class SciPyMinimizer(Minimizer):
                 )
                 solver_initial = np.array(results["minimizer"].x, copy=True)
 
-        if self._matrix_free_diagnostics == "full":
+        if self._matrix_free_diagnostics != "none":
             results.update(
                 self._matrix_free_diagnostic_results(
                     problem, weighting, results["minimizer"].x
                 )
             )
+
+        results["objective_history"] = np.asarray(objective_history)
+        results["measurement_objective_history"] = np.asarray(
+            measurement_objective_history
+        )
+        results["prior_objective_history"] = np.asarray(prior_objective_history)
+        results["evaluation_runtime_history_s"] = np.asarray(
+            evaluation_runtime_history_s
+        )
+        results.update(product_statistics)
 
         return results
 
@@ -872,37 +1168,53 @@ class SciPyMinimizer(Minimizer):
             raise ValueError(msg)
 
         problem = self._matrix_free_problem(
-            measurement_l1, forward_model, retrieval_target
+            measurement_l1,
+            forward_model,
+            retrieval_target,
+            construct_prior_whitener=(
+                self._matrix_free_diagnostics == "fisher_diagonal"
+            ),
         )
         cache = problem.cache
         weighting = problem.weighting
         # L-BFGS-B receives the scalar cost, so this is the squared equivalent
         # of the least-squares residual normalization above.
         normalization = len(problem.measurement) / 2
-        solver_apriori = problem.solver_apriori_state
+        objective_history = []
+        measurement_objective_history = []
+        prior_objective_history = []
+        gradient_inf_norm_history = []
+        evaluation_runtime_history_s = []
+        vjp_calls = 0
+        vjp_runtime_s = 0.0
 
         def objective_and_gradient(x):
+            nonlocal vjp_calls, vjp_runtime_s
+            evaluation_start = perf_counter()
             evaluated = cache.evaluate(x)
             operator = evaluated["operator"]
 
             measurement_residual = weighting.apply(evaluated["y"] - problem.measurement)
-            prior_residual = problem.prior_whitener @ (
-                problem.state_scale * (x - solver_apriori)
+            prior_cost_raw, prior_gradient = retrieval_target.prior_cost_and_gradient()
+            measurement_cost = (
+                0.5 * (measurement_residual @ measurement_residual) / normalization
             )
-            cost = (
-                0.5
-                * (
-                    measurement_residual @ measurement_residual
-                    + prior_residual @ prior_residual
-                )
-                / normalization
-            )
+            prior_cost = prior_cost_raw / normalization
+            cost = measurement_cost + prior_cost
 
+            vjp_start = perf_counter()
             measurement_part = operator.rmatvec(weighting.adjoint(measurement_residual))
-            prior_part = problem.prior_whitener.T @ prior_residual
+            vjp_runtime_s += perf_counter() - vjp_start
+            vjp_calls += 1
             grad = (
-                problem.state_scale * (measurement_part + prior_part)
+                problem.state_scale * (measurement_part + prior_gradient)
             ) / normalization
+
+            objective_history.append(float(cost))
+            measurement_objective_history.append(float(measurement_cost))
+            prior_objective_history.append(float(prior_cost))
+            gradient_inf_norm_history.append(float(np.linalg.norm(grad, ord=np.inf)))
+            evaluation_runtime_history_s.append(perf_counter() - evaluation_start)
 
             return cost, grad
 
@@ -950,12 +1262,26 @@ class SciPyMinimizer(Minimizer):
                 )
                 solver_initial = np.array(results["minimizer"].x, copy=True)
 
-        if self._matrix_free_diagnostics == "full":
+        if self._matrix_free_diagnostics != "none":
             results.update(
                 self._matrix_free_diagnostic_results(
                     problem, weighting, results["minimizer"].x
                 )
             )
+
+        results["objective_history"] = np.asarray(objective_history)
+        results["measurement_objective_history"] = np.asarray(
+            measurement_objective_history
+        )
+        results["prior_objective_history"] = np.asarray(prior_objective_history)
+        results["gradient_inf_norm_history"] = np.asarray(gradient_inf_norm_history)
+        results["evaluation_runtime_history_s"] = np.asarray(
+            evaluation_runtime_history_s
+        )
+        results["jvp_calls"] = 0
+        results["vjp_calls"] = vjp_calls
+        results["jvp_runtime_s"] = 0.0
+        results["vjp_runtime_s"] = vjp_runtime_s
 
         return results
 

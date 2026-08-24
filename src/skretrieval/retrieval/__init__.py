@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from skretrieval.core.radianceformat import RadianceBase
+from skretrieval.retrieval.erroranalysis import information_sqrt
 
 from . import observation
 
@@ -88,6 +89,49 @@ class RetrievalTarget(ABC):
         np.array
             Inverse of the apriori covariance matrix.  If no apriori is used return None.
         """
+
+    def prior_precision_factor(self):
+        """Return ``R`` such that ``R.T @ R`` is the prior precision."""
+        information = self.inverse_apriori_covariance()
+        if information is None:
+            return np.zeros((0, len(self.state_vector())))
+        return information_sqrt(information, "A priori inverse covariance")
+
+    def output_state_derivative_by_retrieval_state(self) -> np.ndarray:
+        """Return the local diagonal map from retrieval to reported state."""
+        return np.ones_like(np.asarray(self.state_vector(), dtype=float))
+
+    def averaging_kernel_row_sum_groups(self) -> np.ndarray:
+        """Label state entries whose averaging-kernel columns may be summed.
+
+        The default treats the state as one physical quantity. Targets with a
+        heterogeneous state should return a distinct integer label for each
+        quantity so row sums do not mix variables with incompatible units.
+        """
+        return np.zeros_like(np.asarray(self.state_vector()), dtype=int)
+
+    def averaging_kernel_resolution_coordinates(self) -> dict[str, np.ndarray]:
+        """Return physical coordinates used for averaging-kernel moments."""
+        return {}
+
+    def prior_cost_and_gradient(self) -> tuple[float, np.ndarray]:
+        """Return the quadratic prior cost and gradient at the current state.
+
+        The gradient is expressed in the same coordinates as :meth:`state_vector`.
+        Targets with nonlinear state-coordinate transforms should override this
+        method so the prior remains defined in its native physical coordinates.
+        """
+        state = np.asarray(self.state_vector(), dtype=float).reshape(-1)
+        apriori = self.apriori_state()
+        if apriori is None:
+            return 0.0, np.zeros_like(state)
+        apriori = np.asarray(apriori, dtype=float).reshape(-1)
+        information = self.inverse_apriori_covariance()
+        if information is None:
+            return 0.0, np.zeros_like(state)
+        delta = state - apriori
+        gradient = np.asarray(information @ delta).reshape(-1)
+        return 0.5 * float(delta @ gradient), gradient
 
     def initialize(  # noqa: B027
         self, forward_model: ForwardModel, meas_l1: RadianceBase

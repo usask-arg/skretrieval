@@ -130,8 +130,9 @@ class Retrieval:
         if state_kwargs is None:
             state_kwargs = {}
         target_kwargs = {} if target_kwargs is None else dict(target_kwargs)
-        if minimizer == "scipy_lbfgsb":
-            # L-BFGS-B is most stable in the target's bounded internal coordinates.
+        if minimizer in {"scipy_lbfgsb", "scipy_lsmr"}:
+            # Matrix-free solvers use the same bounded internal coordinates so
+            # their objectives and regularization are directly comparable.
             target_kwargs.setdefault("rescale_state_space", True)
         if model_kwargs is None:
             model_kwargs = {}

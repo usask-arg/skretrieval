@@ -5,6 +5,7 @@ from typing import ClassVar
 import numpy as np
 import pytest
 import xarray as xr
+from scipy import sparse
 
 from skretrieval.retrieval import ForwardModel, RetrievalTarget
 from skretrieval.retrieval.forwardmodel import StandardForwardModel
@@ -12,6 +13,14 @@ from skretrieval.retrieval.scipy import (
     MatrixFreeUnsupportedError,
     SciPyMinimizer,
 )
+
+
+def test_scipy_minimizer_validates_verbose_level():
+    SciPyMinimizer(verbose=0)
+    SciPyMinimizer(verbose=1)
+    SciPyMinimizer(verbose=2)
+    with pytest.raises(ValueError, match="verbose must be 0, 1, or 2"):
+        SciPyMinimizer(verbose=3)
 
 
 class _Target(RetrievalTarget):
@@ -203,6 +212,52 @@ def test_scipy_matrix_free_maps_error_output_to_target_coordinates():
     assert result["mapped_output"]
 
 
+def test_scipy_matrix_free_fisher_diagonal_diagnostic():
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="fisher_diagonal",
+        fisher_diagonal_probe_count=1,
+        posterior_diagonal_probe_count=1,
+        posterior_diagonal_probe_batch_size=1,
+        diagonal_error_random_seed=123,
+        max_nfev=1,
+        verbose=0,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), _Target())
+
+    np.testing.assert_allclose(result["measurement_information_diagonal"], [1.0])
+    np.testing.assert_allclose(result["solution_covariance_diagonal"], [1.0])
+    np.testing.assert_allclose(result["approximate_averaging_kernel_row_sum"], [1.0])
+    assert result["fisher_diagonal_vjp_calls"] == 1
+    assert result["fisher_diagonal_probe_count"] == 1
+    assert result["posterior_diagonal_probe_count"] == 1
+
+
+def test_scipy_matrix_free_diagnostic_only_does_not_update_state():
+    target = _Target()
+    initial_state = target.state_vector().copy()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="fisher_diagonal",
+        fisher_diagonal_probe_count=1,
+        posterior_diagonal_probe_count=1,
+        posterior_diagonal_probe_batch_size=1,
+        diagnostic_only=True,
+        verbose=0,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_array_equal(target.state_vector(), initial_state)
+    assert result["diagnostic_only"]
+    assert result["minimizer"].nfev == 0
+    assert result["minimizer"].nit == 0
+    assert result["minimizer"].success
+
+
 def test_scipy_materialized_can_use_linearization_jacobian_source():
     forward_model = _LinearizationMaterializedForwardModel()
     minimizer = SciPyMinimizer(
@@ -233,6 +288,70 @@ def test_scipy_matrix_free_lbfgsb_uses_operator_gradient():
     assert result["minimizer"].success
     assert result["minimizer"].cost < 1e-12
     assert "averaging_kernel" not in result
+    assert len(result["objective_history"]) == result["minimizer"].nfev
+    np.testing.assert_allclose(
+        result["objective_history"],
+        result["measurement_objective_history"] + result["prior_objective_history"],
+    )
+    assert len(result["gradient_inf_norm_history"]) == result["minimizer"].nfev
+    assert result["objective_history"][0] > result["objective_history"][-1]
+    assert result["vjp_calls"] == result["minimizer"].nfev
+    assert result["vjp_runtime_s"] >= 0
+
+
+def test_scipy_matrix_free_lbfgsb_keeps_sparse_prior_precision():
+    class SparsePriorTarget(_Target):
+        def inverse_apriori_covariance(self):
+            return sparse.csr_matrix([[2.0]])
+
+    target = SparsePriorTarget()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="none",
+        max_nfev=30,
+        ftol=1.0e-12,
+        minimize_options={"gtol": 1.0e-10},
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    # min 0.5 * ((x - 1)^2 + 2*x^2) is x = 1/3.
+    np.testing.assert_allclose(target.state_vector(), np.array([1 / 3]), atol=1e-8)
+    assert result["minimizer"].success
+
+
+def test_scipy_matrix_free_lsmr_accepts_rectangular_prior_factor():
+    class FactoredPriorTarget(_Target):
+        def inverse_apriori_covariance(self):
+            return sparse.csr_matrix([[5.0]])
+
+        def prior_precision_factor(self):
+            return sparse.csr_matrix([[1.0], [2.0]])
+
+    target = FactoredPriorTarget()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lsmr",
+        matrix_free_diagnostics="none",
+        max_nfev=20,
+        ftol=1.0e-12,
+        xtol=1.0e-12,
+        gtol=1.0e-12,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    # min 0.5 * ((x - 1)^2 + x^2 + (2*x)^2) is x = 1/6.
+    np.testing.assert_allclose(target.state_vector(), np.array([1 / 6]), atol=1e-8)
+    assert result["minimizer"].success
+    assert result["jvp_calls"] > 0
+    assert result["vjp_calls"] > 0
+    assert len(result["objective_history"]) == result["minimizer"].nfev
+    np.testing.assert_allclose(
+        result["objective_history"],
+        result["measurement_objective_history"] + result["prior_objective_history"],
+    )
 
 
 def test_scipy_matrix_free_supports_correlated_measurement_covariance():

@@ -10,6 +10,7 @@ from skretrieval.core.radianceformat import LinearizedRadianceGridded, RadianceG
 from skretrieval.retrieval.erroranalysis import (
     estimate_error,
     estimate_error_from_operator,
+    estimate_fisher_diagonal_error_from_operator,
 )
 
 
@@ -296,3 +297,250 @@ def test_operator_error_analysis_matches_materialized_error_analysis(
     # Seven measurement-space VJPs are cheaper here than four JVP/VJP pairs.
     assert operator.matvec_calls == 0
     assert operator.rmatvec_calls == K.shape[0]
+
+
+def test_fisher_diagonal_error_analysis_matches_diagonal_problem():
+    K = np.diag([2.0, 3.0, 4.0])
+    inv_Sy = sparse.diags([4.0, 1.0, 0.25], format="csc")
+    inv_Sa = sparse.diags([1.0, 2.0, 3.0], format="csc")
+
+    class Operator:
+        shape = K.shape
+
+        def __init__(self):
+            self.matvec_calls = 0
+            self.rmatvec_calls = 0
+
+        def matvec(self, x):
+            self.matvec_calls += 1
+            return K @ x
+
+        def rmatvec(self, y):
+            self.rmatvec_calls += 1
+            return K.T @ y
+
+    operator = Operator()
+    result = estimate_fisher_diagonal_error_from_operator(
+        operator,
+        inv_Sy,
+        inv_Sa,
+        fisher_probe_count=1,
+        posterior_probe_count=4096,
+        posterior_probe_batch_size=256,
+        random_seed=123,
+    )
+
+    expected_fisher = np.diag(K.T @ inv_Sy @ K)
+    expected_posterior = 1 / (expected_fisher + inv_Sa.diagonal())
+    expected_row_sum = expected_fisher * expected_posterior
+    np.testing.assert_allclose(
+        result["measurement_information_diagonal"], expected_fisher
+    )
+    np.testing.assert_allclose(
+        result["solution_covariance_diagonal"], expected_posterior, rtol=0.02
+    )
+    np.testing.assert_allclose(
+        result["approximate_averaging_kernel_row_sum"], expected_row_sum
+    )
+    assert result["averaging_kernel_row_sum_group_count"] == 1
+    assert np.all(np.isnan(result["measurement_information_diagonal_standard_error"]))
+    assert np.all(np.isfinite(result["solution_covariance_diagonal_standard_error"]))
+    assert operator.matvec_calls == 0
+    assert operator.rmatvec_calls == 1
+
+
+def test_approximate_row_sum_is_reported_in_output_state_coordinates():
+    K = np.diag([2.0, 3.0])
+    prior_precision = np.array([[2.0, -1.0], [-1.0, 2.0]])
+    output_mapping = np.array([2.0, 0.5])
+
+    class Operator:
+        shape = K.shape
+
+        @staticmethod
+        def rmatvec(value):
+            return K.T @ value
+
+    result = estimate_fisher_diagonal_error_from_operator(
+        Operator(),
+        np.eye(2),
+        prior_precision,
+        prior_precision_factor=np.linalg.cholesky(prior_precision).T,
+        output_state_derivative_by_retrieval_state=output_mapping,
+        fisher_probe_count=1,
+        posterior_probe_count=1,
+        random_seed=2,
+    )
+
+    fisher = np.diag(K.T @ K)
+    expected = output_mapping * np.linalg.solve(
+        prior_precision + np.diag(fisher),
+        fisher / output_mapping,
+    )
+    np.testing.assert_allclose(result["approximate_averaging_kernel_row_sum"], expected)
+
+
+def test_matrix_free_row_sum_matches_full_averaging_kernel():
+    K = np.array([[1.0, 0.2, -0.1], [0.4, 1.3, 0.5], [-0.2, 0.7, 1.1]])
+    inv_Sy = np.diag([2.0, 0.5, 1.5])
+    prior_precision = np.array([[1.5, -0.2, 0.0], [-0.2, 1.2, -0.1], [0.0, -0.1, 0.8]])
+    output_mapping = np.array([0.5, 2.0, 1.5])
+
+    class Operator:
+        shape = K.shape
+
+        @staticmethod
+        def matvec(value):
+            return K @ value
+
+        @staticmethod
+        def rmatvec(value):
+            return K.T @ value
+
+    result = estimate_fisher_diagonal_error_from_operator(
+        Operator(),
+        inv_Sy,
+        prior_precision,
+        prior_precision_factor=np.linalg.cholesky(prior_precision).T,
+        output_state_derivative_by_retrieval_state=output_mapping,
+        fisher_probe_count=8,
+        posterior_probe_count=1,
+        averaging_kernel_row_sum_mode="matrix_free",
+        averaging_kernel_row_sum_rtol=1.0e-12,
+        averaging_kernel_row_sum_maxiter=10,
+        random_seed=3,
+    )
+
+    measurement_information = K.T @ inv_Sy @ K
+    expected = output_mapping * np.linalg.solve(
+        measurement_information + prior_precision,
+        measurement_information @ (1 / output_mapping),
+    )
+    np.testing.assert_allclose(result["averaging_kernel_row_sum"], expected)
+    assert result["averaging_kernel_row_sum_krylov_info"] == 0
+    assert result["averaging_kernel_row_sum_krylov_iterations"] <= 3
+    assert result["averaging_kernel_row_sum_jvp_calls"] > 0
+    assert result["averaging_kernel_row_sum_vjp_calls"] > 0
+
+
+def test_matrix_free_row_sum_stays_within_physical_state_groups():
+    K = np.array([[1.0, 0.2, -0.1], [0.4, 1.3, 0.5], [-0.2, 0.7, 1.1]])
+    inv_Sy = np.diag([2.0, 0.5, 1.5])
+    prior_precision = np.diag([1.5, 1.2, 0.8])
+    output_mapping = np.array([0.5, 2.0, 1.5])
+    groups = np.array([0, 0, 1])
+
+    class Operator:
+        shape = K.shape
+
+        @staticmethod
+        def matvec(value):
+            return K @ value
+
+        @staticmethod
+        def rmatvec(value):
+            return K.T @ value
+
+    result = estimate_fisher_diagonal_error_from_operator(
+        Operator(),
+        inv_Sy,
+        prior_precision,
+        prior_precision_factor=np.linalg.cholesky(prior_precision).T,
+        output_state_derivative_by_retrieval_state=output_mapping,
+        averaging_kernel_row_sum_groups=groups,
+        fisher_probe_count=8,
+        posterior_probe_count=1,
+        averaging_kernel_row_sum_mode="matrix_free",
+        averaging_kernel_row_sum_rtol=1.0e-12,
+        averaging_kernel_row_sum_maxiter=10,
+        random_seed=3,
+    )
+
+    measurement_information = K.T @ inv_Sy @ K
+    transform = np.diag(output_mapping)
+    averaging_kernel = (
+        transform
+        @ np.linalg.solve(
+            measurement_information + prior_precision,
+            measurement_information,
+        )
+        @ np.linalg.inv(transform)
+    )
+    expected = np.concatenate(
+        (
+            averaging_kernel[:2, :2].sum(axis=1),
+            averaging_kernel[2:, 2:].sum(axis=1),
+        )
+    )
+    np.testing.assert_allclose(result["averaging_kernel_row_sum"], expected)
+    assert result["averaging_kernel_row_sum_group_count"] == 2
+    assert result["averaging_kernel_row_sum_krylov_info"] == 0
+
+
+def test_averaging_kernel_resolution_matches_full_matrix_moments():
+    K = np.diag([2.0, 2.0, 2.0])
+    inv_Sy = np.eye(3)
+    difference = np.array([[-1.0, 1.0, 0.0], [0.0, -1.0, 1.0]])
+    prior_precision = difference.T @ difference
+    vertical_m = np.array([0.0, 1_000.0, 2_000.0])
+    horizontal_m = np.array([0.0, 2_000.0, 4_000.0])
+
+    class Operator:
+        shape = K.shape
+
+        @staticmethod
+        def matvec(value):
+            return K @ value
+
+        @staticmethod
+        def rmatvec(value):
+            return K.T @ value
+
+    result = estimate_fisher_diagonal_error_from_operator(
+        Operator(),
+        inv_Sy,
+        prior_precision,
+        prior_precision_factor=difference,
+        averaging_kernel_resolution_coordinates={
+            "vertical_resolution_m": vertical_m,
+            "horizontal_resolution_m": horizontal_m,
+        },
+        fisher_probe_count=1,
+        posterior_probe_count=1,
+        averaging_kernel_row_sum_mode="matrix_free",
+        averaging_kernel_resolution_mode="matrix_free",
+        averaging_kernel_row_sum_rtol=1.0e-12,
+        averaging_kernel_row_sum_maxiter=10,
+    )
+
+    measurement_information = K.T @ K
+    averaging_kernel = np.linalg.solve(
+        measurement_information + prior_precision,
+        measurement_information,
+    )
+    row_sum = averaging_kernel.sum(axis=1)
+
+    def expected_resolution(coordinate):
+        mean = averaging_kernel @ coordinate / row_sum
+        variance = averaging_kernel @ coordinate**2 / row_sum - mean**2
+        return 2 * np.sqrt(2 * np.log(2)) * np.sqrt(variance)
+
+    for name, coordinate in (
+        ("vertical_resolution_m", vertical_m),
+        ("horizontal_resolution_m", horizontal_m),
+    ):
+        expected = expected_resolution(coordinate)
+        np.testing.assert_allclose(
+            result[f"approximate_averaging_kernel_{name}"],
+            expected,
+        )
+        np.testing.assert_allclose(
+            result[f"averaging_kernel_{name}"],
+            expected,
+        )
+    assert result["averaging_kernel_resolution_krylov_info"] == 0
+    assert result["averaging_kernel_resolution_jvp_calls"] > 0
+    assert (
+        result["averaging_kernel_resolution_definition"]
+        == "signed_moment_gaussian_equivalent_fwhm"
+    )

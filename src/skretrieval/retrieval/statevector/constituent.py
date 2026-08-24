@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import numpy as np
 import sasktran2 as sk2
 import xarray as xr
+from scipy import sparse
 from scipy.linalg import block_diag
 
 from skretrieval.retrieval.prior import BasePrior
@@ -37,6 +40,19 @@ def _physical_1sigma(
     return sigma / scale_factor
 
 
+def _physical_variance(
+    variance: np.ndarray,
+    state_slice: slice,
+    scale_factor: float,
+    property_values,
+    log_space: bool,
+) -> np.ndarray:
+    selected = np.asarray(variance)[state_slice]
+    if log_space:
+        return selected * np.asarray(property_values) ** 2
+    return selected / scale_factor**2
+
+
 class StateVectorElementConstituent(
     StateVectorElement, sk2.constituent.base.Constituent
 ):
@@ -48,9 +64,9 @@ class StateVectorElementConstituent(
         min_value=None,
         max_value=None,
         prior: dict[BasePrior] | None = None,
-        log_space=False,
+        log_space: bool | Mapping[str, bool] = False,
         enabled=True,
-        scale_factor: float = 1.0,
+        scale_factor: float | Mapping[str, float] = 1.0,
     ):
         """
         A state vector element that is a sasktran2.constituent
@@ -69,12 +85,15 @@ class StateVectorElementConstituent(
             maximumum values for the property names as a dictionary, by default {}
         prior : dict, optional
             Prior objects for each property name, by default {}
-        log_space : bool, optional
-            If true then the state elements will be rescaled to logarithmic space, by default False
-        scale_factor : float, optional
-            Constant multiplicative factor between constituent properties and retrieval state.
-            A state value of 1 corresponds to a constituent property value of 1 / scale_factor,
-            by default 1.0
+        log_space : bool or mapping, optional
+            If true then all properties are represented logarithmically. A
+            mapping selects the parameterization independently for each
+            property, by default False.
+        scale_factor : float or mapping, optional
+            Constant multiplicative factor between constituent properties and
+            retrieval state. A mapping selects the factor independently for
+            each property. A linear state value of 1 corresponds to a
+            constituent property value of 1 / scale_factor, by default 1.0.
         """
         if prior is None:
             prior = {}
@@ -82,24 +101,28 @@ class StateVectorElementConstituent(
             max_value = {}
         if min_value is None:
             min_value = {}
-        if scale_factor <= 0:
-            msg = "scale_factor must be positive"
-            raise ValueError(msg)
-
-        self._log_space = log_space
-        self._scale_factor = float(scale_factor)
         self._constituent = constituent
-        self._property_names = property_names
+        self._property_names = list(property_names)
         self._constituent_name = constituent_name
         self._min_value = min_value
         self._max_value = max_value
+
+        self._log_space_by_property = self._property_mapping(
+            log_space, "log_space", bool
+        )
+        self._scale_factor_by_property = self._property_mapping(
+            scale_factor, "scale_factor", float
+        )
+        if any(value <= 0 for value in self._scale_factor_by_property.values()):
+            msg = "scale_factor must be positive"
+            raise ValueError(msg)
 
         self._prior = prior
 
         start = 0
         for property_name in self._property_names:
             if property_name in self._prior:
-                n = len(np.atleast_1d(getattr(self._constituent, property_name)))
+                n = self._property_state_size(property_name)
                 self._prior[property_name].init(self, slice(start, start + n))
                 start += n
             else:
@@ -107,40 +130,90 @@ class StateVectorElementConstituent(
 
         super().__init__(enabled)
 
+    def _property_mapping(self, value, name: str, converter) -> dict:
+        if not isinstance(value, Mapping):
+            return {
+                property_name: converter(value)
+                for property_name in self._property_names
+            }
+
+        unknown = set(value) - set(self._property_names)
+        missing = set(self._property_names) - set(value)
+        if unknown or missing:
+            details = []
+            if missing:
+                details.append(f"missing {sorted(missing)}")
+            if unknown:
+                details.append(f"unknown {sorted(unknown)}")
+            msg = f"{name} property mapping is invalid: {', '.join(details)}"
+            raise ValueError(msg)
+        return {
+            property_name: converter(value[property_name])
+            for property_name in self._property_names
+        }
+
+    def _property_uses_log_space(self, property_name: str) -> bool:
+        return self._log_space_by_property[property_name]
+
+    def _property_scale_factor(self, property_name: str) -> float:
+        return self._scale_factor_by_property[property_name]
+
+    def _transform_property(self, property_name: str, value) -> np.ndarray:
+        scaled = np.asarray(value) * self._property_scale_factor(property_name)
+        if self._property_uses_log_space(property_name):
+            return np.log(scaled)
+        return scaled
+
+    def _transform_bound(
+        self, property_name: str, bound: float, size: int
+    ) -> np.ndarray:
+        if np.isinf(bound):
+            return np.full(size, bound)
+        return self._transform_property(property_name, np.full(size, bound))
+
+    def _property_state_size(self, property_name: str) -> int:
+        return int(np.size(np.atleast_1d(getattr(self._constituent, property_name))))
+
+    def averaging_kernel_row_sum_groups(self) -> np.ndarray:
+        """Keep averaging-kernel row sums within each physical property."""
+        return np.concatenate(
+            [
+                np.full(self._property_state_size(property_name), index, dtype=int)
+                for index, property_name in enumerate(self._property_names)
+            ]
+        )
+
     def state(self) -> np.array:
-        data = []
-
-        for property_name in self._property_names:
-            data.append(getattr(self._constituent, property_name) * self._scale_factor)
-
-        if self._log_space:
-            return np.log(np.hstack(data))
-        return np.hstack(data)
+        return np.concatenate(
+            [
+                self._transform_property(
+                    property_name,
+                    np.asarray(getattr(self._constituent, property_name)).reshape(-1),
+                )
+                for property_name in self._property_names
+            ]
+        )
 
     def lower_bound(self) -> np.array:
         data = []
         for property_name in self._property_names:
-            x = getattr(self._constituent, property_name)
+            x = np.asarray(getattr(self._constituent, property_name))
 
             bound = self._min_value.get(property_name, -np.inf)
 
-            data.append(np.ones(len(x)) * bound * self._scale_factor)
+            data.append(self._transform_bound(property_name, bound, x.size))
 
-        if self._log_space:
-            return np.log(np.hstack(data))
         return np.hstack(data)
 
     def upper_bound(self) -> np.array:
         data = []
         for property_name in self._property_names:
-            x = getattr(self._constituent, property_name)
+            x = np.asarray(getattr(self._constituent, property_name))
 
             bound = self._max_value.get(property_name, np.inf)
 
-            data.append(np.ones(len(x)) * bound * self._scale_factor)
+            data.append(self._transform_bound(property_name, bound, x.size))
 
-        if self._log_space:
-            return np.log(np.hstack(data))
         return np.hstack(data)
 
     def inverse_apriori_covariance(self) -> np.ndarray:
@@ -149,7 +222,7 @@ class StateVectorElementConstituent(
         for property_name in self._property_names:
             inv_S_a = self._prior[property_name].inverse_covariance
 
-            if self._log_space:
+            if self._property_uses_log_space(property_name):
                 prior_mats.append(inv_S_a)
             else:
                 prior_mats.append(
@@ -160,11 +233,33 @@ class StateVectorElementConstituent(
                     )
                 )
 
+        if any(sparse.issparse(matrix) for matrix in prior_mats):
+            return sparse.block_diag(prior_mats, format="csr")
         return block_diag(*prior_mats)
+
+    def prior_precision_factor(self):
+        """Return the prior residual operator in retrieval-state coordinates."""
+        factors = []
+        for property_name in self._property_names:
+            factor = self._prior[property_name].precision_factor
+            if not self._property_uses_log_space(property_name):
+                inverse_state = sparse.diags(
+                    1 / np.asarray(self._prior[property_name].state).reshape(-1),
+                    format="csr",
+                )
+                factor = factor @ inverse_state
+            factors.append(factor)
+
+        if any(sparse.issparse(factor) for factor in factors):
+            return sparse.block_diag(factors, format="csr")
+        return block_diag(*factors)
 
     def apriori_state(self) -> np.array:
         return np.concatenate(
-            [self._prior[property].state for property in self._property_names]
+            [
+                np.asarray(self._prior[property].state).reshape(-1)
+                for property in self._property_names
+            ]
         )
 
     def name(self) -> str:
@@ -179,21 +274,23 @@ class StateVectorElementConstituent(
             )
         wfs = []
         for property_name in self._property_names:
-            wfs.append(
-                radiance[f"wf_{self._constituent_name}_{property_name}"].rename(
-                    {
-                        radiance[f"wf_{self._constituent_name}_{property_name}"].dims[
-                            0
-                        ]: "x"
-                    }
-                )
-            )
+            wf = radiance[f"wf_{self._constituent_name}_{property_name}"]
+            radiance_dims = set(radiance["radiance"].dims)
+            parameter_dims = tuple(dim for dim in wf.dims if dim not in radiance_dims)
 
-            if self._log_space:
-                x = getattr(self._constituent, property_name)
-                wfs[-1].values *= x[:, np.newaxis, np.newaxis, np.newaxis]
+            if self._property_uses_log_space(property_name):
+                x = np.asarray(getattr(self._constituent, property_name))
+                factor = xr.DataArray(x, dims=parameter_dims)
+                wf = wf * factor
             else:
-                wfs[-1].values = wfs[-1].values / self._scale_factor
+                wf = wf / self._property_scale_factor(property_name)
+
+            if len(parameter_dims) == 1:
+                wf = wf.rename({parameter_dims[0]: "x"})
+            else:
+                wf = wf.stack(x=parameter_dims)
+                wf = wf.transpose("x", *radiance["radiance"].dims)
+            wfs.append(wf)
 
         return xr.concat(wfs, dim="x")
 
@@ -228,19 +325,19 @@ class StateVectorElementConstituent(
 
     def _state_to_native_tangent(self, property_name: str, x: np.ndarray) -> np.ndarray:
         """Apply the derivative of constituent property with respect to state."""
-        if self._log_space:
-            current = np.atleast_1d(getattr(self._constituent, property_name))
+        if self._property_uses_log_space(property_name):
+            current = np.asarray(getattr(self._constituent, property_name)).reshape(-1)
             return current * x
-        return x / self._scale_factor
+        return x / self._property_scale_factor(property_name)
 
     def _native_gradient_to_state(
         self, property_name: str, gradient: np.ndarray
     ) -> np.ndarray:
         """Apply the adjoint of ``_state_to_native_tangent``."""
-        if self._log_space:
-            current = np.atleast_1d(getattr(self._constituent, property_name))
+        if self._property_uses_log_space(property_name):
+            current = np.asarray(getattr(self._constituent, property_name)).reshape(-1)
             return gradient * current
-        return gradient / self._scale_factor
+        return gradient / self._property_scale_factor(property_name)
 
     def add_to_linearization_tangent(
         self,
@@ -250,8 +347,8 @@ class StateVectorElementConstituent(
     ) -> None:
         start = 0
         for property_name in self._property_names:
-            current = np.atleast_1d(getattr(self._constituent, property_name))
-            end = start + len(current)
+            current = np.asarray(getattr(self._constituent, property_name))
+            end = start + current.size
             parameter_name = self._linearization_parameter_name(
                 property_name, tangent_template
             )
@@ -291,25 +388,31 @@ class StateVectorElementConstituent(
     def update_state(self, x: np.array):
         start = 0
         for property_name in self._property_names:
-            current = getattr(self._constituent, property_name)
-            property_length = len(np.atleast_1d(current))
-            if self._log_space:
-                sv = np.exp(x[start : start + property_length]) / self._scale_factor
+            current = np.asarray(getattr(self._constituent, property_name))
+            property_length = current.size
+            scale_factor = self._property_scale_factor(property_name)
+            if self._property_uses_log_space(property_name):
+                sv = np.exp(x[start : start + property_length]) / scale_factor
                 if np.sum(np.isnan(sv)) > 0:
                     sv[np.isnan(sv)] = self._max_value[property_name]
             else:
-                sv = x[start : start + property_length] / self._scale_factor
+                sv = x[start : start + property_length] / scale_factor
             if property_name in self._min_value:
                 sv[sv < self._min_value[property_name]] = self._min_value[property_name]
             if property_name in self._max_value:
                 sv[sv > self._max_value[property_name]] = self._max_value[property_name]
 
-            self._constituent.__setattr__(property_name, sv)
+            self._constituent.__setattr__(property_name, sv.reshape(current.shape))
 
             start += property_length
 
     def modify_input_radiance(self, radiance: xr.Dataset):
         return radiance
+
+    @property
+    def volume_spatial_mode(self):
+        """Preserve the wrapped constituent's spatial input convention."""
+        return self._constituent.volume_spatial_mode
 
     def add_to_atmosphere(self, atmo: sk2.Atmosphere):
         return self._constituent.add_to_atmosphere(atmo)
@@ -382,6 +485,7 @@ class StateVectorElementConstituent(
             is sk2.constituent.brdf.lambertiansurface.LambertianSurface
         ):
             albedo = getattr(self._constituent, self._property_names[0])
+            property_name = self._property_names[0]
 
             ds[self._constituent_name] = xr.DataArray(
                 albedo,
@@ -393,9 +497,9 @@ class StateVectorElementConstituent(
                     _physical_1sigma(
                         kwargs["covariance"],
                         slice(None),
-                        self._scale_factor,
+                        self._property_scale_factor(property_name),
                         albedo,
-                        self._log_space,
+                        self._property_uses_log_space(property_name),
                     ),
                     dims=[self._constituent._interp_var],
                     coords={self._constituent._interp_var: self._constituent._x},
@@ -408,12 +512,14 @@ class StateVectorElementConstituent(
                     np.atleast_1d(getattr(self._constituent, property_name))
                 )
 
-                if self._log_space:
+                scale_factor = self._property_scale_factor(property_name)
+                log_space = self._property_uses_log_space(property_name)
+                if log_space:
                     prior_values = (
-                        np.exp(self._prior[property_name].state) / self._scale_factor
+                        np.exp(self._prior[property_name].state) / scale_factor
                     )
                 else:
-                    prior_values = self._prior[property_name].state / self._scale_factor
+                    prior_values = self._prior[property_name].state / scale_factor
 
                 if end - start == 1:  # scalar property
                     ds[self._constituent_name + "_" + property_name] = xr.DataArray(
@@ -434,9 +540,9 @@ class StateVectorElementConstituent(
                             _physical_1sigma(
                                 kwargs["covariance"],
                                 slice(start, end),
-                                self._scale_factor,
+                                scale_factor,
                                 getattr(self._constituent, property_name),
-                                self._log_space,
+                                log_space,
                             )
                         )
 
@@ -489,9 +595,9 @@ class StateVectorElementConstituent(
                             _physical_1sigma(
                                 kwargs["covariance"],
                                 slice(start, end),
-                                self._scale_factor,
+                                scale_factor,
                                 getattr(self._constituent, property_name),
-                                self._log_space,
+                                log_space,
                             ),
                             dims=[altitude_dim],
                             coords=profile_coords,
