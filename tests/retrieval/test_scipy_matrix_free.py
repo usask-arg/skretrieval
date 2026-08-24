@@ -12,6 +12,7 @@ from skretrieval.retrieval.forwardmodel import StandardForwardModel
 from skretrieval.retrieval.scipy import (
     MatrixFreeUnsupportedError,
     SciPyMinimizer,
+    _measurement_weighting,
 )
 
 
@@ -377,6 +378,30 @@ def test_scipy_matrix_free_supports_correlated_measurement_covariance():
     np.testing.assert_allclose(target.state_vector(), expected, atol=1e-9)
 
 
+def test_sparse_block_measurement_covariance_stays_sparse():
+    blocks = [
+        np.array([[1.0, 0.2], [0.2, 0.8]]),
+        np.array([[1.4, -0.1, 0.05], [-0.1, 0.9, 0.2], [0.05, 0.2, 1.2]]),
+    ]
+    covariance = sparse.block_diag(
+        [sparse.csc_matrix(block) for block in blocks], format="csc"
+    )
+
+    weighting = _measurement_weighting(
+        covariance,
+        np.ones(covariance.shape[0], dtype=bool),
+    )
+
+    assert sparse.issparse(weighting.whitener)
+    assert sparse.issparse(weighting.inverse_covariance)
+    np.testing.assert_allclose(
+        weighting.inverse_covariance.toarray(),
+        np.linalg.inv(covariance.toarray()),
+        rtol=1.0e-13,
+        atol=1.0e-14,
+    )
+
+
 def test_scipy_matrix_free_reweights_both_sides_between_passes():
     jacobian = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0]])
     measurement = np.array([1.0, 2.0, 3.2, 12.0])
@@ -480,14 +505,22 @@ def test_forward_model_refreshes_active_linearization_metadata():
     forward_model._state_vector = state_vector
     forward_model._engine = {"measurement": object()}
     forward_model._linearization_tangent_templates = {}
-    forward_model._linearize = lambda _key: Linearization()
+    prepared_parameters = []
+
+    def linearize(_key, *, prepare_parameters=None):
+        prepared_parameters.append(prepare_parameters)
+        return Linearization()
+
+    forward_model._linearize = linearize
     forward_model._append_instrument_result = lambda l1, key, radiance: l1.__setitem__(
         key, radiance
     )
 
     first = forward_model.calculate_linearized_radiance()
     assert first["measurement"].n_state == 3
+    assert prepared_parameters == [None]
 
     state_vector.state_elements[1].enabled = False
     second = forward_model.calculate_linearized_radiance()
     assert second["measurement"].n_state == 1
+    assert prepared_parameters == [None, ("parameter_0",)]

@@ -98,14 +98,14 @@ class StandardForwardModel(ForwardModel):
             self._state_vector.add_to_atmosphere(atmo[key])
             self._ancillary.add_to_atmosphere(atmo[key])
 
-            self._model_geometry[key].refractive_index = (
-                sk.optical.refraction.ciddor_index_of_refraction(
-                    atmo[key].temperature_k,
-                    atmo[key].pressure_pa,
-                    np.zeros_like(atmo[key].temperature_k),
-                    450,
-                    np.nanmean(atmo[key].wavelengths_nm),
-                )
+            self._model_geometry[
+                key
+            ].refractive_index = sk.optical.refraction.ciddor_index_of_refraction(
+                atmo[key].temperature_k,
+                atmo[key].pressure_pa,
+                np.zeros_like(atmo[key].temperature_k),
+                450,
+                np.nanmean(atmo[key].wavelengths_nm),
             )
 
         return atmo
@@ -134,11 +134,13 @@ class StandardForwardModel(ForwardModel):
 
         self._observation.append_information_to_l1(l1)
 
-    def _linearize(self, key: str):
+    def _linearize(self, key: str, *, prepare_parameters=None):
         if not hasattr(self._engine[key], "linearize"):
             msg = "Installed SASKTRAN2 does not provide Engine.linearize()"
             raise NotImplementedError(msg)
-        return self._engine[key].linearize(self._atmosphere[key])
+        return self._engine[key].linearize(
+            self._atmosphere[key], prepare_parameters=prepare_parameters
+        )
 
     def calculate_radiance(self):
         l1 = {}
@@ -178,7 +180,13 @@ class StandardForwardModel(ForwardModel):
 
         l1 = {}
         for key in self._engine:
-            linearization = self._linearize(key)
+            tangent_template = self._linearization_tangent_templates.get(key)
+            prepare_parameters = (
+                None
+                if tangent_template is None
+                else self._state_vector.linearization_parameter_names(tangent_template)
+            )
+            linearization = self._linearize(key, prepare_parameters=prepare_parameters)
             required_attributes = (
                 "backends",
                 "jvp",
@@ -202,7 +210,6 @@ class StandardForwardModel(ForwardModel):
                 )
                 raise NotImplementedError(msg)
 
-            tangent_template = self._linearization_tangent_templates.get(key)
             if tangent_template is None:
                 tangent_template = linearization.tangent_template
                 self._linearization_tangent_templates[key] = tangent_template

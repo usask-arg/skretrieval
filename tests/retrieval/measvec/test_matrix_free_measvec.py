@@ -59,6 +59,52 @@ def _l1_pair():
     )
 
 
+def _orbital_l1_pair():
+    wavelengths = np.array([300.0, 320.0])
+    tangent_altitude = np.tile([10_000.0, 20_000.0, 30_000.0], 2)
+    image = np.repeat([4, 5], 3)
+    y = np.arange(1.0, 13.0).reshape(2, 6)
+    K = np.random.default_rng(42).normal(size=(2, 6, 5)) / 100
+    noise = np.full_like(y, 0.2)
+    ds = xr.Dataset(
+        {
+            "radiance": (("wavelength", "los"), y),
+            "wf": (("wavelength", "los", "x"), K),
+            "radiance_noise": (("wavelength", "los"), noise),
+        },
+        coords={
+            "wavelength": wavelengths,
+            "los": np.arange(6),
+            "x": np.arange(5),
+            "tangent_altitude": ("los", tangent_altitude),
+            "image": ("los", image),
+        },
+    ).set_xindex("tangent_altitude")
+    flat_K = K.reshape((-1, K.shape[-1]))
+
+    def matvec(x: np.ndarray) -> xr.DataArray:
+        return xr.DataArray(
+            (flat_K @ x).reshape(y.shape),
+            dims=("wavelength", "los"),
+            coords=ds.radiance.coords,
+        )
+
+    def rmatvec(cotangent: xr.DataArray) -> np.ndarray:
+        return flat_K.T @ np.asarray(cotangent).reshape(-1)
+
+    return (
+        {"measurement": RadianceGridded(ds.copy(deep=True))},
+        {
+            "measurement": LinearizedRadianceGridded(
+                ds.drop_vars("wf").copy(deep=True),
+                matvec,
+                rmatvec,
+                flat_K.shape[1],
+            )
+        },
+    )
+
+
 def _assert_operator_matches(materialized, matrix_free):
     np.testing.assert_allclose(matrix_free.y, materialized.y)
     materialized_Sy = (
@@ -131,6 +177,46 @@ def test_matrix_free_selector_compositions_match_materialized_jacobian():
         mv.select(mv.nearest_selector(materialized_l1, wavelength=314.0)),
         mv.select(mv.nearest_selector(matrix_free_l1, wavelength=314.0)),
     )
+
+
+def test_triplet_groups_repeated_orbital_altitudes_by_image():
+    materialized_l1, matrix_free_l1 = _orbital_l1_pair()
+    materialized_l1 = mv.pre_process(materialized_l1)
+    matrix_free_l1 = mv.pre_process(matrix_free_l1)
+    triplet = mv.Triplet(
+        wavelength=[300.0, 320.0],
+        weights=[1.0, -1.0],
+        altitude_range=[10_000.0, 20_000.0],
+        normalization_range=[30_000.0, 30_000.0],
+        group_by="image",
+    )
+
+    materialized = triplet.apply(materialized_l1)
+    matrix_free = triplet.apply(matrix_free_l1)
+
+    _assert_operator_matches(materialized, matrix_free)
+    expected = []
+    for image_slice in (slice(0, 3), slice(3, 6)):
+        for los in range(image_slice.start, image_slice.stop - 1):
+            expected.append(
+                (
+                    np.log(materialized_l1["measurement"].data.radiance[0, los])
+                    - np.log(
+                        materialized_l1["measurement"].data.radiance[
+                            0, image_slice.stop - 1
+                        ]
+                    )
+                )
+                - (
+                    np.log(materialized_l1["measurement"].data.radiance[1, los])
+                    - np.log(
+                        materialized_l1["measurement"].data.radiance[
+                            1, image_slice.stop - 1
+                        ]
+                    )
+                )
+            )
+    np.testing.assert_allclose(materialized.y, expected)
     _assert_operator_matches(
         mv.wavelength_mean(materialized_l1, wavelength=slice(300.0, 320.0)),
         mv.wavelength_mean(matrix_free_l1, wavelength=slice(300.0, 320.0)),

@@ -205,6 +205,14 @@ def _measurement_weighting(
 
     if sparse.issparse(y_error):
         covariance = y_error.tocsc()[good_measurement][:, good_measurement]
+        if np.any(~np.isfinite(covariance.data)):
+            msg = "Measurement covariance must contain only finite values"
+            raise ValueError(msg)
+        asymmetry = covariance - covariance.T
+        asymmetry.eliminate_zeros()
+        if asymmetry.nnz and not np.allclose(asymmetry.data, 0.0):
+            msg = "Measurement covariance must be symmetric"
+            raise ValueError(msg)
         diagonal = covariance.diagonal()
         off_diagonal = covariance - sparse.diags(diagonal, format="csc")
         off_diagonal.eliminate_zeros()
@@ -217,6 +225,31 @@ def _measurement_weighting(
                 sparse.diags(np.sqrt(inverse_variance), format="csc"),
                 sparse.diags(inverse_variance, format="csc"),
             )
+        component_count, component_label = sparse.csgraph.connected_components(
+            covariance,
+            directed=False,
+        )
+        if component_count > 1:
+            rows = []
+            columns = []
+            values = []
+            for component in range(component_count):
+                indices = np.flatnonzero(component_label == component)
+                block = covariance[indices][:, indices].toarray()
+                block_weighting = _measurement_weighting(
+                    block,
+                    np.ones(len(indices), dtype=bool),
+                )
+                block_whitener = np.asarray(block_weighting.whitener)
+                block_rows, block_columns = np.nonzero(block_whitener)
+                rows.extend(indices[block_rows])
+                columns.extend(indices[block_columns])
+                values.extend(block_whitener[block_rows, block_columns])
+            whitener = sparse.csc_matrix(
+                (values, (rows, columns)),
+                shape=(n_measurement, n_measurement),
+            )
+            return _MeasurementWeighting(whitener, whitener.T @ whitener)
         covariance = covariance.toarray()
     else:
         covariance = np.asarray(y_error)[np.ix_(good_measurement, good_measurement)]

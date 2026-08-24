@@ -293,12 +293,15 @@ class TwoDimensionalTikhonov(BasePrior):
     ----------
     shape : tuple[int, int]
         Number of horizontal and altitude grid points.
-    vertical_factor : float, optional
-        Precision multiplier for vertical differences.
-    horizontal_factor : float, optional
-        Precision multiplier for horizontal differences.
-    diagonal_factor : float, optional
-        Diagonal precision anchoring the solution to the prior state.
+    vertical_factor : float or numpy.ndarray, optional
+        Precision multiplier for vertical differences. Arrays must broadcast to
+        ``shape`` and weight each difference row on the two-dimensional grid.
+    horizontal_factor : float or numpy.ndarray, optional
+        Precision multiplier for horizontal differences. Arrays must broadcast
+        to ``shape`` and weight each difference row on the two-dimensional grid.
+    diagonal_factor : float or numpy.ndarray, optional
+        Diagonal precision anchoring the solution to the prior state. Arrays
+        must broadcast to ``shape``.
     vertical_order : int, optional
         Vertical difference order, either 1 or 2.
     horizontal_order : int, optional
@@ -312,9 +315,9 @@ class TwoDimensionalTikhonov(BasePrior):
         self,
         shape: tuple[int, int],
         *,
-        vertical_factor: float = 0.0,
-        horizontal_factor: float = 0.0,
-        diagonal_factor: float = 0.0,
+        vertical_factor: float | np.ndarray = 0.0,
+        horizontal_factor: float | np.ndarray = 0.0,
+        diagonal_factor: float | np.ndarray = 0.0,
         vertical_order: int = 1,
         horizontal_order: int = 1,
         prior_state: np.ndarray | None = None,
@@ -325,15 +328,19 @@ class TwoDimensionalTikhonov(BasePrior):
         if vertical_order not in (1, 2) or horizontal_order not in (1, 2):
             msg = "vertical_order and horizontal_order must be 1 or 2"
             raise ValueError(msg)
-        factors = (vertical_factor, horizontal_factor, diagonal_factor)
-        if any(not np.isfinite(value) or value < 0 for value in factors):
-            msg = "Tikhonov factors must be finite and non-negative"
-            raise ValueError(msg)
-
         self._shape = tuple(int(size) for size in shape)
-        self._vertical_factor = float(vertical_factor)
-        self._horizontal_factor = float(horizontal_factor)
-        self._diagonal_factor = float(diagonal_factor)
+        self._vertical_factor = self._validated_factor(
+            vertical_factor,
+            "vertical_factor",
+        )
+        self._horizontal_factor = self._validated_factor(
+            horizontal_factor,
+            "horizontal_factor",
+        )
+        self._diagonal_factor = self._validated_factor(
+            diagonal_factor,
+            "diagonal_factor",
+        )
         self._vertical_order = vertical_order
         self._horizontal_order = horizontal_order
         self._prior_state = (
@@ -341,6 +348,38 @@ class TwoDimensionalTikhonov(BasePrior):
             if prior_state is None
             else np.asarray(prior_state, dtype=float).reshape(-1)
         )
+
+    def _validated_factor(
+        self,
+        factor: float | np.ndarray,
+        name: str,
+    ) -> float | np.ndarray:
+        values = np.asarray(factor, dtype=float)
+        if np.any(~np.isfinite(values)) or np.any(values < 0):
+            msg = f"{name} must be finite and non-negative"
+            raise ValueError(msg)
+        if values.ndim == 0:
+            return float(values)
+        try:
+            return np.broadcast_to(values, self._shape).copy()
+        except ValueError as error:
+            msg = f"{name} must be scalar or broadcast to shape {self._shape}"
+            raise ValueError(msg) from error
+
+    def _scaled_factor_rows(
+        self,
+        operator: sparse.spmatrix,
+        factor: float | np.ndarray,
+    ) -> sparse.spmatrix | None:
+        if not np.any(np.asarray(factor) > 0):
+            return None
+        if np.ndim(factor) == 0:
+            return np.sqrt(float(factor)) * operator
+        row_scale = sparse.diags(
+            np.sqrt(np.asarray(factor, dtype=float).reshape(-1)),
+            format="csr",
+        )
+        return row_scale @ operator
 
     def init(self, sv: StateVectorElement, sv_slice: slice | None = None):
         state = np.asarray(sv.state()[sv_slice], dtype=float).reshape(-1)
@@ -369,15 +408,21 @@ class TwoDimensionalTikhonov(BasePrior):
         vertical = vertical_fn(num_horizontal, num_altitude, factor=1, sparse=True)
         horizontal = horizontal_fn(num_horizontal, num_altitude, factor=1, sparse=True)
         residual_factors = []
-        if self._vertical_factor > 0:
-            residual_factors.append(np.sqrt(self._vertical_factor) * vertical)
-        if self._horizontal_factor > 0:
-            residual_factors.append(np.sqrt(self._horizontal_factor) * horizontal)
-        if self._diagonal_factor > 0:
-            residual_factors.append(
-                np.sqrt(self._diagonal_factor)
-                * sparse.eye(expected_size, format="csr")
-            )
+        scaled_vertical = self._scaled_factor_rows(vertical, self._vertical_factor)
+        if scaled_vertical is not None:
+            residual_factors.append(scaled_vertical)
+        scaled_horizontal = self._scaled_factor_rows(
+            horizontal,
+            self._horizontal_factor,
+        )
+        if scaled_horizontal is not None:
+            residual_factors.append(scaled_horizontal)
+        scaled_diagonal = self._scaled_factor_rows(
+            sparse.eye(expected_size, format="csr"),
+            self._diagonal_factor,
+        )
+        if scaled_diagonal is not None:
+            residual_factors.append(scaled_diagonal)
         self._precision_factor = (
             sparse.vstack(residual_factors, format="csr")
             if residual_factors

@@ -15,6 +15,7 @@ from skretrieval.core.radianceformat import (
     RadianceGridded,
     VJPContribution,
     evaluate_vjp_contributions,
+    select_dataset,
 )
 
 
@@ -305,7 +306,7 @@ def pre_process(
 def _measurement_from_selection(radiance: RadianceGridded, **kwargs) -> Measurement:
     """Select one radiance into a materialized or matrix-free measurement."""
     if not isinstance(radiance, LinearizedRadianceGridded):
-        selected = radiance.data.sel(**kwargs)
+        selected = select_dataset(radiance.data, kwargs)
         covariance = None
         if "radiance_noise" in selected:
             covariance = sparse.diags(
@@ -731,7 +732,7 @@ def wavelength_mean(
                 )
                 continue
 
-            selected = val.data.sel(**kwargs).mean(dim="wavelength")
+            selected = select_dataset(val.data, kwargs).mean(dim="wavelength")
             covariance = None
             if "radiance_noise" in selected:
                 covariance = sparse.diags(
@@ -758,6 +759,7 @@ class Triplet(MeasurementVector):
         normalization_range: list[float],
         normalize=True,
         log_space=True,
+        group_by: str | None = None,
         **kwargs,
     ):
         """
@@ -778,6 +780,9 @@ class Triplet(MeasurementVector):
             Altidude range to select
         normalization_range : list[float]
             Altitude range to normalize to
+        group_by : str, optional
+            One-dimensional coordinate used to normalize independent profiles,
+            for example ``"image"`` for a flattened orbital observation.
         """
         self._wavelength = wavelength
         nearest_wavelength_cache = {}
@@ -787,65 +792,93 @@ class Triplet(MeasurementVector):
             if normalize:
                 res_norm_range = [_resolve_value(v, ctxt) for v in normalization_range]
 
-            t_vals = []
-            for w, weight in zip(wavelength, weights):
-                measurements = {}
-                for key, value in l1.items():
-                    if not fnmatch.fnmatch(key, kwargs.get("filter", "*")):
-                        continue
-                    cache_key = key, w
-                    wavelength_grid = value.data["wavelength"].to_numpy()
-                    cached = nearest_wavelength_cache.get(cache_key)
-                    if cached is None or not np.array_equal(cached[0], wavelength_grid):
-                        nearest_wavelength_cache[cache_key] = (
-                            np.array(wavelength_grid, copy=True),
-                            _nearest_wavelength(value, w),
-                        )
-                    measurements[key] = value
+            matched = {
+                key: value
+                for key, value in l1.items()
+                if fnmatch.fnmatch(key, kwargs.get("filter", "*"))
+            }
+            grouped = []
+            if group_by is None:
+                grouped.append((matched, {}))
+            else:
+                for key, value in matched.items():
+                    if group_by not in value.data.coords:
+                        msg = f"Triplet group coordinate {group_by!r} is missing"
+                        raise KeyError(msg)
+                    group_coordinate = value.data.coords[group_by]
+                    if group_coordinate.ndim != 1:
+                        msg = "Triplet group coordinate must be one-dimensional"
+                        raise ValueError(msg)
+                    group_values = np.asarray(group_coordinate)
+                    _, first_index = np.unique(group_values, return_index=True)
+                    for group_value in group_values[np.sort(first_index)]:
+                        grouped.append(({key: value}, {group_by: group_value}))
 
-                def altitude_measurement(
-                    altitude_slice, *, selected_l1=measurements, wavelength=w
-                ):
-                    selected = [
-                        _measurement_from_selection(
-                            value,
-                            wavelength=nearest_wavelength_cache[(key, wavelength)][1],
-                            tangent_altitude=altitude_slice,
-                        )
-                        for key, value in selected_l1.items()
-                    ]
-                    return concat(selected)
+            grouped_results = []
+            for measurements, group_selector in grouped:
+                t_vals = []
+                for w, weight in zip(wavelength, weights):
+                    for key, value in measurements.items():
+                        cache_key = key, w
+                        wavelength_grid = value.data["wavelength"].to_numpy()
+                        cached = nearest_wavelength_cache.get(cache_key)
+                        if cached is None or not np.array_equal(
+                            cached[0], wavelength_grid
+                        ):
+                            nearest_wavelength_cache[cache_key] = (
+                                np.array(wavelength_grid, copy=True),
+                                _nearest_wavelength(value, w),
+                            )
 
-                # Get the useful wavelength data
-                if log_space:
-                    wavel_data = log(
-                        altitude_measurement(
-                            slice(res_altitude_range[0], res_altitude_range[1])
-                        )
-                    )
-                else:
-                    wavel_data = altitude_measurement(
-                        slice(res_altitude_range[0], res_altitude_range[1])
-                    )
+                    def altitude_measurement(
+                        altitude_slice,
+                        *,
+                        selected_l1=measurements,
+                        wavelength=w,
+                        selector=group_selector,
+                    ):
+                        selected = [
+                            _measurement_from_selection(
+                                value,
+                                wavelength=nearest_wavelength_cache[(key, wavelength)][
+                                    1
+                                ],
+                                tangent_altitude=altitude_slice,
+                                **selector,
+                            )
+                            for key, value in selected_l1.items()
+                        ]
+                        return concat(selected)
 
-                # The triplet value is the difference of the log radiances subtracted by the normalization multiplied by the weight
-                if normalize:
-                    norm_vals = mean(
-                        log(
+                    if log_space:
+                        wavel_data = log(
                             altitude_measurement(
-                                slice(res_norm_range[0], res_norm_range[1])
+                                slice(res_altitude_range[0], res_altitude_range[1])
                             )
                         )
-                    )
-                    t_vals.append(multiply(subtract(wavel_data, norm_vals), weight))
-                else:
-                    t_vals.append(multiply(wavel_data, weight))
-            # Add all of the wavelengths together
-            res = t_vals[0]
-            for i in range(1, len(t_vals)):
-                res = add(res, t_vals[i])
+                    else:
+                        wavel_data = altitude_measurement(
+                            slice(res_altitude_range[0], res_altitude_range[1])
+                        )
 
-            return res
+                    if normalize:
+                        norm_vals = mean(
+                            log(
+                                altitude_measurement(
+                                    slice(res_norm_range[0], res_norm_range[1])
+                                )
+                            )
+                        )
+                        t_vals.append(multiply(subtract(wavel_data, norm_vals), weight))
+                    else:
+                        t_vals.append(multiply(wavel_data, weight))
+
+                result = t_vals[0]
+                for value in t_vals[1:]:
+                    result = add(result, value)
+                grouped_results.append(result)
+
+            return concat(grouped_results)
 
         super().__init__(y, **kwargs)
 

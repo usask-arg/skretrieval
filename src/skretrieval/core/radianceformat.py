@@ -86,6 +86,87 @@ def _hashable_indexer(value):
     return value
 
 
+def select_dataset(
+    ds: xr.Dataset,
+    indexers: dict,
+    *,
+    method: str | None = None,
+) -> xr.Dataset:
+    """Select labels, including slices on repeated one-dimensional indexes.
+
+    Xarray cannot apply a label slice to a non-monotonic index. Orbital limb
+    data naturally repeats the tangent-altitude sequence for every image, so
+    convert such slices to positional masks while retaining ordinary xarray
+    selection for monotonic and scalar indexes.
+    """
+    label_indexers = {}
+    positional_masks: dict[str, np.ndarray] = {}
+    positional_steps: dict[str, int] = {}
+    for name, indexer in indexers.items():
+        coordinate = ds.coords.get(name)
+        xindex = ds.xindexes.get(name)
+        if coordinate is None or coordinate.ndim != 1:
+            label_indexers[name] = indexer
+            continue
+
+        if isinstance(indexer, slice):
+            if xindex is not None:
+                pandas_index = xindex.to_pandas_index()
+                if (
+                    pandas_index.is_monotonic_increasing
+                    or pandas_index.is_monotonic_decreasing
+                ):
+                    label_indexers[name] = indexer
+                    continue
+
+            values = np.asarray(coordinate)
+            if indexer.start is None:
+                start_mask = np.ones(values.shape, dtype=bool)
+            elif indexer.stop is not None and indexer.start > indexer.stop:
+                start_mask = values <= indexer.start
+            else:
+                start_mask = values >= indexer.start
+            if indexer.stop is None:
+                stop_mask = np.ones(values.shape, dtype=bool)
+            elif indexer.start is not None and indexer.start > indexer.stop:
+                stop_mask = values >= indexer.stop
+            else:
+                stop_mask = values <= indexer.stop
+            mask = start_mask & stop_mask
+            if indexer.step is not None:
+                positional_steps[coordinate.dims[0]] = indexer.step
+        elif xindex is None:
+            values = np.asarray(coordinate)
+            requested = np.asarray(indexer)
+            if method == "nearest" and requested.ndim == 0:
+                mask = np.zeros(values.shape, dtype=bool)
+                mask[int(np.argmin(np.abs(values - requested.item())))] = True
+            elif requested.ndim == 0:
+                mask = values == requested.item()
+            else:
+                mask = np.isin(values, requested)
+        else:
+            label_indexers[name] = indexer
+            continue
+        dimension = coordinate.dims[0]
+        if dimension in positional_masks:
+            positional_masks[dimension] &= mask
+        else:
+            positional_masks[dimension] = mask
+
+    positional_indexers = {}
+    for dimension, mask in positional_masks.items():
+        positions = np.flatnonzero(mask)
+        if dimension in positional_steps:
+            positions = positions[:: positional_steps[dimension]]
+        positional_indexers[dimension] = positions
+
+    selected = ds.isel(positional_indexers)
+    if label_indexers:
+        selected = selected.sel(**label_indexers, method=method)
+    return selected
+
+
 @dataclass(frozen=True)
 class _SelectionPlan:
     """Positional selection and scatter information for a fixed radiance grid."""
@@ -107,7 +188,7 @@ def _compile_selection_plan(
         position_names[dim] = name
         augmented[name] = (dim, np.arange(size))
 
-    selected = augmented.sel(**indexers, method=method)
+    selected = select_dataset(augmented, indexers, method=method)
     positional_indexers = {}
     for dim, name in position_names.items():
         positions = np.asarray(selected[name])
