@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import weakref
 from typing import ClassVar
 
 import numpy as np
@@ -12,6 +13,7 @@ from skretrieval.retrieval.forwardmodel import StandardForwardModel
 from skretrieval.retrieval.scipy import (
     MatrixFreeUnsupportedError,
     SciPyMinimizer,
+    _LinearizedMeasurementCache,
     _measurement_weighting,
 )
 
@@ -97,6 +99,37 @@ class _UnsupportedLinearizedForwardModel(_MaterializedOnlyForwardModel):
 class _OperatorForwardModel(_MaterializedOnlyForwardModel):
     def calculate_linearized_radiance(self):
         return "linearized_operator"
+
+
+def test_matrix_free_cache_releases_previous_linearization_before_rebuild():
+    class Target(_Target):
+        def matrix_free_measurement_vector(self, operator):
+            return {
+                "y": np.asarray([self.x[0]]),
+                "jacobian_operator": operator,
+            }
+
+    class ForwardModel:
+        def __init__(self):
+            self.previous_operator = None
+
+        def calculate_linearized_radiance(self):
+            if self.previous_operator is not None:
+                assert self.previous_operator() is None
+            operator = _IdentityOperator()
+            self.previous_operator = weakref.ref(operator)
+            return operator
+
+    forward_model = ForwardModel()
+    cache = _LinearizedMeasurementCache(
+        forward_model,
+        Target(),
+        np.asarray([True]),
+        np.asarray([1.0]),
+    )
+
+    cache.evaluate(np.asarray([0.0]))
+    cache.evaluate(np.asarray([1.0]))
 
 
 class _LinearizationMaterializedForwardModel(_MaterializedOnlyForwardModel):

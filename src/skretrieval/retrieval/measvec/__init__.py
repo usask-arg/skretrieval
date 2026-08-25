@@ -626,6 +626,57 @@ def multiply(measurement: Measurement, factor: float) -> Measurement:
     )
 
 
+def multiply_elementwise(
+    measurement: Measurement,
+    factor: np.ndarray,
+) -> Measurement:
+    """Multiply each measurement row by its corresponding scale factor."""
+    factor = np.asarray(factor, dtype=float).reshape(-1)
+    if factor.shape != measurement.y.shape:
+        msg = (
+            "Elementwise measurement factors must match the measurement shape; "
+            f"got {factor.shape} and {measurement.y.shape}"
+        )
+        raise ValueError(msg)
+
+    result_covariance = None
+    if measurement.Sy is not None:
+        if sparse.issparse(measurement.Sy):
+            scaling = sparse.diags(factor, format="csc")
+            result_covariance = scaling @ measurement.Sy @ scaling
+        else:
+            result_covariance = np.asarray(measurement.Sy) * np.outer(factor, factor)
+
+    if measurement.has_operator:
+
+        def matvec(x: np.ndarray, *, meas=measurement, scale=factor) -> np.ndarray:
+            return meas.jvp(x) * scale
+
+        def pullback(
+            y: np.ndarray,
+            *,
+            meas=measurement,
+            scale=factor,
+        ) -> list[VJPContribution]:
+            return meas.vjp_contributions(np.asarray(y) * scale)
+
+        return Measurement(
+            y=measurement.y * factor,
+            K=None,
+            Sy=result_covariance,
+            matvec=matvec,
+            pullback=pullback,
+            n_state=measurement.n_state,
+            vjp_depth=measurement.vjp_depth + 1,
+        )
+
+    return Measurement(
+        y=measurement.y * factor,
+        K=measurement.K * factor[:, np.newaxis],
+        Sy=result_covariance,
+    )
+
+
 def subtract(measurement: Measurement, other: Measurement) -> Measurement:
     """
     Subtract one measurement from another
@@ -907,6 +958,278 @@ class Triplet(MeasurementVector):
                     [val[np.abs(val - w).argmin()] for w in self._wavelength]
                 )
         return all_wv
+
+
+class AltitudeWeightedTripletSum(MeasurementVector):
+    """Sum normalized spectral triplets on one altitude-dependent output grid.
+
+    Each triplet is normalized independently, multiplied by a piecewise-linear
+    altitude weight, and added to the same measurement row. This is useful for
+    staged limb-retrieval measurement vectors where one spectral combination
+    hands sensitivity to another as tangent altitude changes.
+
+    ``legacy_linear_covariance`` reproduces algorithms that accumulated each
+    triplet's point variance with one power of its altitude weight and omitted
+    normalization-window noise. The default propagates the available modeled
+    covariance through the measurement transformations instead.
+    """
+
+    def __init__(
+        self,
+        wavelength: list[list[float]],
+        weights: list[list[float]],
+        normalization_range: list[list[float]],
+        altitude_weight_grid: list[list[float]],
+        altitude_weight_values: list[list[float]],
+        altitude_range: list[float],
+        *,
+        group_by: str | None = None,
+        open_altitude_bounds: bool = False,
+        legacy_linear_covariance: bool = False,
+        **kwargs,
+    ):
+        triplet_count = len(wavelength)
+        if triplet_count == 0:
+            msg = "At least one triplet is required"
+            raise ValueError(msg)
+        if not all(
+            len(values) == triplet_count
+            for values in (
+                weights,
+                normalization_range,
+                altitude_weight_grid,
+                altitude_weight_values,
+            )
+        ):
+            msg = "All triplet configuration lists must have equal length"
+            raise ValueError(msg)
+        if len(altitude_range) != 2 or altitude_range[0] >= altitude_range[1]:
+            msg = "altitude_range must contain two increasing values"
+            raise ValueError(msg)
+
+        for index in range(triplet_count):
+            if len(wavelength[index]) != len(weights[index]):
+                msg = f"Triplet {index} wavelengths and weights must have equal length"
+                raise ValueError(msg)
+            if (
+                len(normalization_range[index]) != 2
+                or normalization_range[index][0] > normalization_range[index][1]
+            ):
+                msg = f"Triplet {index} normalization range is invalid"
+                raise ValueError(msg)
+            grid = np.asarray(altitude_weight_grid[index], dtype=float)
+            values = np.asarray(altitude_weight_values[index], dtype=float)
+            if (
+                grid.ndim != 1
+                or grid.size < 2
+                or values.shape != grid.shape
+                or np.any(~np.isfinite(grid))
+                or np.any(~np.isfinite(values))
+                or np.any(np.diff(grid) <= 0)
+            ):
+                msg = f"Triplet {index} altitude weighting is invalid"
+                raise ValueError(msg)
+
+        self._wavelength = tuple(tuple(value) for value in wavelength)
+        self._weights = tuple(tuple(value) for value in weights)
+        self._normalization_range = tuple(tuple(value) for value in normalization_range)
+        self._altitude_weight_grid = tuple(
+            np.asarray(value, dtype=float) for value in altitude_weight_grid
+        )
+        self._altitude_weight_values = tuple(
+            np.asarray(value, dtype=float) for value in altitude_weight_values
+        )
+        self._altitude_range = tuple(float(value) for value in altitude_range)
+        self._group_by = group_by
+        self._open_altitude_bounds = bool(open_altitude_bounds)
+        self._legacy_linear_covariance = bool(legacy_linear_covariance)
+        nearest_wavelength_cache = {}
+
+        def y(l1, ctxt, **apply_kwargs):
+            del ctxt
+            matched = {
+                key: value
+                for key, value in l1.items()
+                if fnmatch.fnmatch(key, apply_kwargs.get("filter", "*"))
+            }
+            grouped = []
+            if group_by is None:
+                grouped.append((matched, {}))
+            else:
+                for key, value in matched.items():
+                    if group_by not in value.data.coords:
+                        msg = f"Triplet group coordinate {group_by!r} is missing"
+                        raise KeyError(msg)
+                    group_coordinate = value.data.coords[group_by]
+                    if group_coordinate.ndim != 1:
+                        msg = "Triplet group coordinate must be one-dimensional"
+                        raise ValueError(msg)
+                    group_values = np.asarray(group_coordinate)
+                    _, first_index = np.unique(group_values, return_index=True)
+                    for group_value in group_values[np.sort(first_index)]:
+                        grouped.append(({key: value}, {group_by: group_value}))
+
+            lower_altitude, upper_altitude = self._altitude_range
+            if self._open_altitude_bounds:
+                lower_altitude = np.nextafter(lower_altitude, np.inf)
+                upper_altitude = np.nextafter(upper_altitude, -np.inf)
+            profile_altitude_slice = slice(lower_altitude, upper_altitude)
+
+            grouped_results = []
+            for measurements, group_selector in grouped:
+                for triplet_wavelengths in self._wavelength:
+                    for requested in triplet_wavelengths:
+                        for key, value in measurements.items():
+                            cache_key = key, requested
+                            wavelength_grid = value.data["wavelength"].to_numpy()
+                            cached = nearest_wavelength_cache.get(cache_key)
+                            if cached is None or not np.array_equal(
+                                cached[0], wavelength_grid
+                            ):
+                                nearest_wavelength_cache[cache_key] = (
+                                    np.array(wavelength_grid, copy=True),
+                                    _nearest_wavelength(value, requested),
+                                )
+
+                first_requested = self._wavelength[0][0]
+                altitude_parts = []
+                for key, value in measurements.items():
+                    selected = select_dataset(
+                        value.data,
+                        {
+                            "wavelength": nearest_wavelength_cache[
+                                (key, first_requested)
+                            ][1],
+                            "tangent_altitude": profile_altitude_slice,
+                            **group_selector,
+                        },
+                    )
+                    altitude_parts.append(
+                        np.asarray(selected["tangent_altitude"], dtype=float).reshape(
+                            -1
+                        )
+                    )
+                tangent_altitude = np.concatenate(altitude_parts)
+
+                def altitude_measurement(
+                    altitude_slice,
+                    requested_wavelength,
+                    *,
+                    selected_l1=measurements,
+                    selector=group_selector,
+                ):
+                    selected = [
+                        _measurement_from_selection(
+                            value,
+                            wavelength=nearest_wavelength_cache[
+                                (key, requested_wavelength)
+                            ][1],
+                            tangent_altitude=altitude_slice,
+                            **selector,
+                        )
+                        for key, value in selected_l1.items()
+                    ]
+                    return concat(selected)
+
+                combined = None
+                legacy_variance = np.zeros(tangent_altitude.size, dtype=float)
+                has_legacy_covariance = False
+                for (
+                    triplet_wavelengths,
+                    triplet_weights,
+                    triplet_normalization,
+                    weight_grid,
+                    weight_values,
+                ) in zip(
+                    self._wavelength,
+                    self._weights,
+                    self._normalization_range,
+                    self._altitude_weight_grid,
+                    self._altitude_weight_values,
+                    strict=True,
+                ):
+                    triplet_measurement = None
+                    triplet_point_variance = np.zeros(
+                        tangent_altitude.size,
+                        dtype=float,
+                    )
+                    for requested, spectral_weight in zip(
+                        triplet_wavelengths,
+                        triplet_weights,
+                        strict=True,
+                    ):
+                        point = log(
+                            altitude_measurement(
+                                profile_altitude_slice,
+                                requested,
+                            )
+                        )
+                        normalization = mean(
+                            log(
+                                altitude_measurement(
+                                    slice(*triplet_normalization),
+                                    requested,
+                                )
+                            )
+                        )
+                        term = multiply(
+                            subtract(point, normalization),
+                            spectral_weight,
+                        )
+                        triplet_measurement = (
+                            term
+                            if triplet_measurement is None
+                            else add(triplet_measurement, term)
+                        )
+                        if point.Sy is not None:
+                            has_legacy_covariance = True
+                            triplet_point_variance += abs(spectral_weight) * np.asarray(
+                                point.Sy.diagonal()
+                            ).reshape(-1)
+
+                    altitude_weight = np.interp(
+                        tangent_altitude,
+                        weight_grid,
+                        weight_values,
+                        left=weight_values[0],
+                        right=weight_values[-1],
+                    )
+                    altitude_weight[tangent_altitude >= triplet_normalization[0]] = 0
+                    weighted = multiply_elementwise(
+                        triplet_measurement,
+                        altitude_weight,
+                    )
+                    combined = weighted if combined is None else add(combined, weighted)
+                    legacy_variance += altitude_weight * triplet_point_variance
+
+                if self._legacy_linear_covariance:
+                    if has_legacy_covariance:
+                        legacy_variance[legacy_variance <= 0] = 1.0
+                        combined.Sy = sparse.diags(legacy_variance, format="csc")
+                    else:
+                        combined.Sy = None
+                grouped_results.append(combined)
+
+            return concat(grouped_results)
+
+        super().__init__(y, **kwargs)
+
+    def required_sample_wavelengths(
+        self,
+        obs_samples: dict[np.array],
+    ) -> dict[np.array]:
+        all_wavelengths = np.unique(np.concatenate(self._wavelength))
+        selected = {}
+        for key, values in obs_samples.items():
+            selected[key] = []
+            if fnmatch.fnmatch(key, self.filter):
+                selected[key] = np.asarray(
+                    [
+                        values[np.abs(values - value).argmin()]
+                        for value in all_wavelengths
+                    ]
+                )
+        return selected
 
 
 class IntegratedLine(MeasurementVector):

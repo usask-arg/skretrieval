@@ -169,6 +169,17 @@ def test_matrix_free_measurement_primitives_match_materialized_jacobian():
         mv.subtract(matrix_free, mv.mean(right_matrix_free)),
     )
 
+    _assert_operator_matches(
+        mv.multiply_elementwise(
+            materialized,
+            np.array([0.25, 2.0, -1.0, 0.5, 1.25, -0.75]),
+        ),
+        mv.multiply_elementwise(
+            matrix_free,
+            np.array([0.25, 2.0, -1.0, 0.5, 1.25, -0.75]),
+        ),
+    )
+
 
 def test_matrix_free_selector_compositions_match_materialized_jacobian():
     materialized_l1, matrix_free_l1 = _l1_pair()
@@ -221,6 +232,68 @@ def test_triplet_groups_repeated_orbital_altitudes_by_image():
         mv.wavelength_mean(materialized_l1, wavelength=slice(300.0, 320.0)),
         mv.wavelength_mean(matrix_free_l1, wavelength=slice(300.0, 320.0)),
     )
+
+
+def test_altitude_weighted_triplet_sum_matches_legacy_combination():
+    materialized_l1, matrix_free_l1 = _orbital_l1_pair()
+    materialized_l1 = mv.pre_process(materialized_l1)
+    matrix_free_l1 = mv.pre_process(matrix_free_l1)
+    triplet_sum = mv.AltitudeWeightedTripletSum(
+        wavelength=[[300.0, 320.0], [300.0]],
+        weights=[[-1.0, 1.0], [0.25]],
+        normalization_range=[[30_000.0, 30_000.0], [30_000.0, 30_000.0]],
+        altitude_weight_grid=[
+            [0.0, 10_000.0, 20_000.0, 100_000.0],
+            [0.0, 100_000.0],
+        ],
+        altitude_weight_values=[[0.0, 0.0, 1.0, 1.0], [2.0, 2.0]],
+        altitude_range=[10_000.0, 20_000.0],
+        group_by="image",
+        legacy_linear_covariance=True,
+    )
+
+    materialized = triplet_sum.apply(materialized_l1)
+    matrix_free = triplet_sum.apply(matrix_free_l1)
+    _assert_operator_matches(materialized, matrix_free)
+
+    radiance = np.asarray(materialized_l1["measurement"].data.radiance)
+    noise = np.asarray(materialized_l1["measurement"].data.radiance_noise)
+    expected_y = []
+    expected_variance = []
+    for image_slice in (slice(0, 3), slice(3, 6)):
+        normalization_index = image_slice.stop - 1
+        for local_index, los in enumerate(
+            range(image_slice.start, image_slice.stop - 1)
+        ):
+            first_triplet = -np.log(
+                radiance[0, los] / radiance[0, normalization_index]
+            ) + np.log(radiance[1, los] / radiance[1, normalization_index])
+            second_triplet = 0.25 * np.log(
+                radiance[0, los] / radiance[0, normalization_index]
+            )
+            first_altitude_weight = float(local_index)
+            expected_y.append(
+                first_altitude_weight * first_triplet + 2 * second_triplet
+            )
+
+            first_variance = (noise[0, los] / radiance[0, los]) ** 2 + (
+                noise[1, los] / radiance[1, los]
+            ) ** 2
+            second_variance = 0.25 * (noise[0, los] / radiance[0, los]) ** 2
+            expected_variance.append(
+                first_altitude_weight * first_variance + 2 * second_variance
+            )
+
+    np.testing.assert_allclose(materialized.y, expected_y)
+    np.testing.assert_allclose(materialized.Sy.diagonal(), expected_variance)
+
+
+def test_altitude_weighted_triplet_sum_validates_elementwise_factors():
+    materialized_l1, _ = _l1_pair()
+    measurement = mv.select(materialized_l1, wavelength=300.0)
+
+    with pytest.raises(ValueError, match="must match the measurement shape"):
+        mv.multiply_elementwise(measurement, np.ones(2))
 
 
 def test_matrix_free_measurement_can_skip_modeled_covariance():

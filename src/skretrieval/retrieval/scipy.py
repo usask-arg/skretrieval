@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import warnings
 from dataclasses import dataclass
 from time import perf_counter
@@ -146,6 +147,15 @@ class _LinearizedMeasurementCache:
         x = np.asarray(x).reshape(-1)
         if self._x is not None and np.array_equal(self._x, x):
             return self._value
+
+        # A native SASKTRAN2 linearization can own many gigabytes of orbital-
+        # plane derivative workspace.  Drop the previous state's operator
+        # before constructing the next one so two complete linearizations are
+        # never resident at the same time.  Some measurement-vector operators
+        # contain callback cycles, hence the explicit cyclic collection.
+        self._x = None
+        self._value = None
+        gc.collect()
 
         self._retrieval_target.update_state(self._state_scale * x)
 
