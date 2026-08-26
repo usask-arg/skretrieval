@@ -307,6 +307,7 @@ class SciPyMinimizer(Minimizer):
         x_scale="jac",
         tr_solver="exact",
         apply_state_scaling=False,
+        matrix_free_state_scale: float | np.ndarray | None = None,
         include_bounds=False,
         num_passes=1,
         jacobian_mode="materialized",
@@ -355,6 +356,12 @@ class SciPyMinimizer(Minimizer):
             If true, then the state vector is scaled relative to the apriori in the solver, useful
             when the state vector elements are of largely varying magnitudes and you have a well
             specified prior, by default False
+        matrix_free_state_scale: float or numpy.ndarray, optional
+            Explicit positive diagonal change of variables for matrix-free
+            solvers. The physical state is ``matrix_free_state_scale * z``
+            where ``z`` is the solver coordinate. This changes optimizer
+            conditioning without changing the retrieval objective. It is
+            mutually exclusive with ``apply_state_scaling``.
         include_bounds : bool, optional
             If true, bounds are included inside the solver, by default False.
         num_passes : int, optional
@@ -465,12 +472,18 @@ class SciPyMinimizer(Minimizer):
         self._verbose = verbose
 
         self._apply_state_scaling = apply_state_scaling
+        self._matrix_free_state_scale = matrix_free_state_scale
 
         self._kwargs = kwargs
 
         self._validate_options()
 
     def _validate_options(self) -> None:
+        if self._apply_state_scaling and self._matrix_free_state_scale is not None:
+            msg = (
+                "apply_state_scaling and matrix_free_state_scale are mutually exclusive"
+            )
+            raise ValueError(msg)
         if self._jacobian_mode not in {"materialized", "auto", "matrix_free"}:
             msg = "jacobian_mode must be 'materialized', 'auto', or 'matrix_free'"
             raise ValueError(msg)
@@ -890,7 +903,7 @@ class SciPyMinimizer(Minimizer):
             msg = "A priori inverse covariance size does not match the retrieval state"
             raise ValueError(msg)
 
-        measurement = retrieval_target.measurement_vector(measurement_l1)
+        measurement = retrieval_target.observed_measurement_vector(measurement_l1)
         y_meas = np.asarray(measurement["y"], dtype=float).reshape(-1)
         good_measurement = np.isfinite(y_meas)
         if not np.any(good_measurement):
@@ -900,7 +913,22 @@ class SciPyMinimizer(Minimizer):
         weighting = _measurement_weighting(measurement.get("y_error"), good_measurement)
 
         state_scale = np.ones_like(apriori_state)
-        if self._apply_state_scaling:
+        if self._matrix_free_state_scale is not None:
+            explicit_scale = np.asarray(self._matrix_free_state_scale, dtype=float)
+            if explicit_scale.ndim == 0:
+                state_scale.fill(float(explicit_scale))
+            elif explicit_scale.shape == initial_state.shape:
+                state_scale = np.array(explicit_scale, copy=True)
+            else:
+                msg = (
+                    "matrix_free_state_scale must be scalar or match the state "
+                    f"shape {initial_state.shape}"
+                )
+                raise ValueError(msg)
+            if np.any(~np.isfinite(state_scale)) or np.any(state_scale <= 0):
+                msg = "matrix_free_state_scale must contain finite positive values"
+                raise ValueError(msg)
+        elif self._apply_state_scaling:
             if np.any(~np.isfinite(apriori_state)) or np.any(apriori_state == 0):
                 msg = (
                     "apply_state_scaling requires finite, nonzero a priori state values"

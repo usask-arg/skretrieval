@@ -59,6 +59,14 @@ class RetrievalTarget(ABC):
         """
         return self.measurement_vector(l1_data)
 
+    def observed_measurement_vector(self, l1_data: RadianceBase):
+        """Evaluate observed measurements without requiring a Jacobian.
+
+        Targets may override this to avoid allocating dummy derivative columns
+        when a matrix-free solver only needs the observed values and errors.
+        """
+        return self.measurement_vector(l1_data)
+
     @abstractmethod
     def update_state(self, x: np.ndarray):
         """

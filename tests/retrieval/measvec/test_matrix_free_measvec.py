@@ -288,6 +288,36 @@ def test_altitude_weighted_triplet_sum_matches_legacy_combination():
     np.testing.assert_allclose(materialized.Sy.diagonal(), expected_variance)
 
 
+def test_compiled_altitude_weighted_triplet_ignores_inactive_nan_triplet():
+    materialized_l1, _ = _orbital_l1_pair()
+    materialized_l1 = mv.pre_process(materialized_l1)
+    materialized_l1["measurement"].data["radiance"][1, 2] = -1.0
+    configuration = {
+        "wavelength": [[300.0, 320.0], [300.0]],
+        "weights": [[-1.0, 1.0], [0.25]],
+        "normalization_range": [
+            [30_000.0, 30_000.0],
+            [30_000.0, 30_000.0],
+        ],
+        "altitude_weight_grid": [
+            [0.0, 10_000.0, 20_000.0, 100_000.0],
+            [0.0, 100_000.0],
+        ],
+        "altitude_weight_values": [[0.0, 0.0, 1.0, 1.0], [2.0, 2.0]],
+        "altitude_range": [10_000.0, 20_000.0],
+        "group_by": "image",
+        "legacy_linear_covariance": True,
+    }
+    compiled = mv.AltitudeWeightedTripletSum(**configuration).apply(materialized_l1)
+
+    # The invalid 320-nm normalization affects the 20-km row where that
+    # triplet has nonzero altitude weight, but must not invalidate the 10-km
+    # row where the triplet is exactly inactive.
+    assert np.isfinite(compiled.y[0])
+    assert np.isnan(compiled.y[1])
+    assert np.all(np.isfinite(compiled.y[2:]))
+
+
 def test_altitude_weighted_triplet_sum_validates_elementwise_factors():
     materialized_l1, _ = _l1_pair()
     measurement = mv.select(materialized_l1, wavelength=300.0)

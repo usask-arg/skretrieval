@@ -98,14 +98,14 @@ class StandardForwardModel(ForwardModel):
             self._state_vector.add_to_atmosphere(atmo[key])
             self._ancillary.add_to_atmosphere(atmo[key])
 
-            self._model_geometry[
-                key
-            ].refractive_index = sk.optical.refraction.ciddor_index_of_refraction(
-                atmo[key].temperature_k,
-                atmo[key].pressure_pa,
-                np.zeros_like(atmo[key].temperature_k),
-                450,
-                np.nanmean(atmo[key].wavelengths_nm),
+            self._model_geometry[key].refractive_index = (
+                sk.optical.refraction.ciddor_index_of_refraction(
+                    atmo[key].temperature_k,
+                    atmo[key].pressure_pa,
+                    np.zeros_like(atmo[key].temperature_k),
+                    450,
+                    np.nanmean(atmo[key].wavelengths_nm),
+                )
             )
 
         return atmo

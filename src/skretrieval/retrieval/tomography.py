@@ -570,6 +570,11 @@ class OrbitalPlaneSpectrograph(SpectrometerMixin, StandardForwardModel):
     def _construct_engine(self):
         kwargs = dict(self._orbital_engine_kwargs)
         max_time_groups_per_engine = kwargs.pop("max_time_groups_per_engine", None)
+        chunk_execution = kwargs.pop("chunk_execution", "resident")
+        streaming_chunk_workers = kwargs.pop("streaming_chunk_workers", 1)
+        if max_time_groups_per_engine is None and chunk_execution != "resident":
+            msg = "chunk_execution='streaming' requires max_time_groups_per_engine"
+            raise ValueError(msg)
         if "solar_handler" not in kwargs and "sun_vectors_ecef" not in kwargs:
             kwargs["solar_handler"] = sk2.solar.SolarGeometryHandlerAstropy()
         engines = {}
@@ -587,6 +592,8 @@ class OrbitalPlaneSpectrograph(SpectrometerMixin, StandardForwardModel):
                     self._model_geometry[key],
                     self._viewing_geo[key],
                     max_time_groups_per_engine=max_time_groups_per_engine,
+                    chunk_execution=chunk_execution,
+                    streaming_chunk_workers=streaming_chunk_workers,
                     **kwargs,
                 )
         return engines

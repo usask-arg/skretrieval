@@ -228,6 +228,29 @@ def test_scipy_matrix_free_can_skip_operator_diagnostics_and_accept_tr_options()
     result = minimizer.retrieve("measurement", _OperatorForwardModel(), _Target())
 
     assert "minimizer" in result
+
+
+def test_scipy_matrix_free_uses_jacobian_free_observed_measurements():
+    class Target(_Target):
+        def measurement_vector(self, l1_data):
+            if l1_data == "measurement":
+                msg = "observed path must not request a Jacobian"
+                raise AssertionError(msg)
+            return super().measurement_vector(l1_data)
+
+        def observed_measurement_vector(self, l1_data):
+            assert l1_data == "measurement"
+            return {"y": np.array([1.0]), "y_error": np.eye(1)}
+
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        max_nfev=1,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), Target())
+
+    assert "minimizer" in result
     assert "averaging_kernel" not in result
     assert "solution_covariance" not in result
 
@@ -331,6 +354,43 @@ def test_scipy_matrix_free_lbfgsb_uses_operator_gradient():
     assert result["objective_history"][0] > result["objective_history"][-1]
     assert result["vjp_calls"] == result["minimizer"].nfev
     assert result["vjp_runtime_s"] >= 0
+
+
+def test_scipy_matrix_free_explicit_state_scale_preserves_physical_solution():
+    jacobian = np.diag([1.0, 0.01])
+    measurement = np.array([1.0, 1.0])
+    target = _LinearTarget(jacobian, measurement, np.eye(2))
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="none",
+        matrix_free_state_scale=np.array([1.0, 100.0]),
+        max_nfev=30,
+        ftol=1.0e-12,
+        minimize_options={"gtol": 1.0e-10},
+    )
+
+    minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_allclose(target.state_vector(), [1.0, 100.0], atol=1.0e-8)
+
+
+def test_scipy_matrix_free_explicit_state_scale_is_validated():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        SciPyMinimizer(
+            apply_state_scaling=True,
+            matrix_free_state_scale=2.0,
+        )
+
+    target = _LinearTarget(np.eye(2), np.ones(2), np.eye(2))
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        matrix_free_state_scale=np.array([1.0, 0.0]),
+        max_nfev=1,
+    )
+    with pytest.raises(ValueError, match="finite positive"):
+        minimizer.retrieve("measurement", _OperatorForwardModel(), target)
 
 
 def test_scipy_matrix_free_lbfgsb_keeps_sparse_prior_precision():

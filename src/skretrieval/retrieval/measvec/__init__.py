@@ -313,9 +313,11 @@ def _measurement_from_selection(radiance: RadianceGridded, **kwargs) -> Measurem
                 selected["radiance_noise"].to_numpy().flatten() ** 2,
                 format="csc",
             )
+        num_measurements = selected["radiance"].size
+        num_state = len(selected["x"])
         return Measurement(
             y=selected["radiance"].to_numpy().flatten(),
-            K=selected["wf"].to_numpy().reshape((-1, len(selected["x"]))),
+            K=selected["wf"].to_numpy().reshape((num_measurements, num_state)),
             Sy=covariance,
         )
 
@@ -960,6 +962,261 @@ class Triplet(MeasurementVector):
         return all_wv
 
 
+@dataclass(frozen=True)
+class _GroupedAltitudeTripletPlan:
+    """Sparse log-radiance transforms shared by every retrieval iteration."""
+
+    transform: sparse.csr_matrix
+    legacy_variance_weights: sparse.csr_matrix
+    validity_inputs: sparse.csr_matrix
+
+
+def _grouped_altitude_triplet_plan(
+    radiance: RadianceGridded,
+    *,
+    wavelength: tuple[tuple[float, ...], ...],
+    weights: tuple[tuple[float, ...], ...],
+    normalization_range: tuple[tuple[float, ...], ...],
+    altitude_weight_grid: tuple[np.ndarray, ...],
+    altitude_weight_values: tuple[np.ndarray, ...],
+    altitude_range: tuple[float, float],
+    group_by: str,
+    open_altitude_bounds: bool,
+) -> _GroupedAltitudeTripletPlan:
+    """Compile one grouped triplet sum into sparse forward/adjoint maps."""
+    data = radiance.data
+    template = data["radiance"]
+    if set(template.dims) != {"wavelength", "los"} or template.ndim != 2:
+        msg = "Grouped altitude triplets require radiance dimensions wavelength and los"
+        raise ValueError(msg)
+    for coordinate in ("wavelength", "tangent_altitude", group_by):
+        if coordinate not in data.coords:
+            msg = f"Triplet coordinate {coordinate!r} is missing"
+            raise KeyError(msg)
+    if data.coords["tangent_altitude"].dims != ("los",):
+        msg = "Triplet tangent altitude must be one-dimensional over los"
+        raise ValueError(msg)
+    if data.coords[group_by].dims != ("los",):
+        msg = "Triplet group coordinate must be one-dimensional over los"
+        raise ValueError(msg)
+
+    wavelength_grid = np.asarray(data.coords["wavelength"], dtype=float)
+    tangent_altitude = np.asarray(data.coords["tangent_altitude"], dtype=float)
+    group_coordinate = np.asarray(data.coords[group_by])
+    _, first_group_index = np.unique(group_coordinate, return_index=True)
+    group_values = group_coordinate[np.sort(first_group_index)]
+
+    lower_altitude, upper_altitude = altitude_range
+    if open_altitude_bounds:
+        profile_mask = (tangent_altitude > lower_altitude) & (
+            tangent_altitude < upper_altitude
+        )
+    else:
+        profile_mask = (tangent_altitude >= lower_altitude) & (
+            tangent_altitude <= upper_altitude
+        )
+    output_los_parts = [
+        np.flatnonzero(profile_mask & (group_coordinate == group_value))
+        for group_value in group_values
+    ]
+    output_los = np.concatenate(output_los_parts)
+    output_altitude = tangent_altitude[output_los]
+    output_count = output_los.size
+    input_shape = template.shape
+    wavelength_axis = template.get_axis_num("wavelength")
+    los_axis = template.get_axis_num("los")
+
+    def flat_indices(wavelength_index: int, los_indices: np.ndarray) -> np.ndarray:
+        coordinates = [None] * 2
+        coordinates[wavelength_axis] = np.full(
+            len(los_indices), wavelength_index, dtype=int
+        )
+        coordinates[los_axis] = np.asarray(los_indices, dtype=int)
+        return np.ravel_multi_index(tuple(coordinates), input_shape)
+
+    rows = []
+    columns = []
+    coefficients = []
+    variance_rows = []
+    variance_columns = []
+    variance_coefficients = []
+    validity_rows = []
+    validity_columns = []
+    validity_coefficients = []
+
+    group_output_rows = []
+    start = 0
+    for local_los in output_los_parts:
+        group_output_rows.append(np.arange(start, start + len(local_los), dtype=int))
+        start += len(local_los)
+
+    for (
+        triplet_wavelengths,
+        triplet_weights,
+        triplet_normalization,
+        weight_grid,
+        weight_values,
+    ) in zip(
+        wavelength,
+        weights,
+        normalization_range,
+        altitude_weight_grid,
+        altitude_weight_values,
+        strict=True,
+    ):
+        altitude_weight = np.interp(
+            output_altitude,
+            weight_grid,
+            weight_values,
+            left=weight_values[0],
+            right=weight_values[-1],
+        )
+        altitude_weight[output_altitude >= triplet_normalization[0]] = 0.0
+
+        for requested_wavelength, spectral_weight in zip(
+            triplet_wavelengths, triplet_weights, strict=True
+        ):
+            wavelength_index = int(
+                np.argmin(np.abs(wavelength_grid - requested_wavelength))
+            )
+            point_coefficient = altitude_weight * spectral_weight
+            nonzero = point_coefficient != 0
+            validity_rows.append(np.flatnonzero(nonzero))
+            validity_columns.append(flat_indices(wavelength_index, output_los[nonzero]))
+            validity_coefficients.append(
+                np.ones(np.count_nonzero(nonzero), dtype=np.int8)
+            )
+            rows.append(np.flatnonzero(nonzero))
+            columns.append(flat_indices(wavelength_index, output_los[nonzero]))
+            coefficients.append(point_coefficient[nonzero])
+            variance_rows.append(np.flatnonzero(nonzero))
+            variance_columns.append(flat_indices(wavelength_index, output_los[nonzero]))
+            variance_coefficients.append(
+                altitude_weight[nonzero] * abs(spectral_weight)
+            )
+
+            normalization_mask = (tangent_altitude >= triplet_normalization[0]) & (
+                tangent_altitude <= triplet_normalization[1]
+            )
+            for group_value, output_rows_for_group in zip(
+                group_values, group_output_rows, strict=True
+            ):
+                normalization_los = np.flatnonzero(
+                    normalization_mask & (group_coordinate == group_value)
+                )
+                if normalization_los.size == 0:
+                    msg = (
+                        "Triplet normalization range contains no samples for "
+                        f"{group_by}={group_value!r}"
+                    )
+                    raise ValueError(msg)
+                local_weight = point_coefficient[output_rows_for_group]
+                local_nonzero = local_weight != 0
+                if not np.any(local_nonzero):
+                    continue
+                active_rows = output_rows_for_group[local_nonzero]
+                normalization_columns = flat_indices(
+                    wavelength_index, normalization_los
+                )
+                validity_rows.append(np.repeat(active_rows, normalization_los.size))
+                validity_columns.append(
+                    np.tile(normalization_columns, active_rows.size)
+                )
+                validity_coefficients.append(
+                    np.ones(
+                        active_rows.size * normalization_los.size,
+                        dtype=np.int8,
+                    )
+                )
+                rows.append(np.repeat(active_rows, normalization_los.size))
+                columns.append(np.tile(normalization_columns, active_rows.size))
+                coefficients.append(
+                    np.repeat(
+                        -local_weight[local_nonzero] / normalization_los.size,
+                        normalization_los.size,
+                    )
+                )
+
+    input_count = int(np.prod(input_shape))
+
+    def matrix(row_parts, column_parts, value_parts):
+        return sparse.coo_matrix(
+            (
+                np.concatenate(value_parts),
+                (np.concatenate(row_parts), np.concatenate(column_parts)),
+            ),
+            shape=(output_count, input_count),
+        ).tocsr()
+
+    return _GroupedAltitudeTripletPlan(
+        transform=matrix(rows, columns, coefficients),
+        legacy_variance_weights=matrix(
+            variance_rows,
+            variance_columns,
+            variance_coefficients,
+        ),
+        validity_inputs=matrix(
+            validity_rows,
+            validity_columns,
+            validity_coefficients,
+        ),
+    )
+
+
+def _apply_grouped_altitude_triplet_plan(
+    radiance: RadianceGridded,
+    plan: _GroupedAltitudeTripletPlan,
+) -> Measurement:
+    """Apply a compiled grouped triplet map to values and derivative products."""
+    base = _measurement_from_selection(radiance)
+    log_radiance = np.log(base.y)
+    result_y = np.asarray(plan.transform @ log_radiance).reshape(-1)
+    invalid_input = ~np.isfinite(log_radiance)
+    invalid_output = (
+        np.asarray(plan.validity_inputs @ invalid_input.astype(np.int8)).reshape(-1)
+        != 0
+    )
+    result_y[invalid_output] = np.nan
+
+    covariance = None
+    if base.Sy is not None:
+        relative_variance = np.asarray(base.Sy.diagonal()).reshape(-1) / base.y**2
+        variance = np.asarray(plan.legacy_variance_weights @ relative_variance).reshape(
+            -1
+        )
+        variance[variance <= 0] = 1.0
+        covariance = sparse.diags(variance, format="csc")
+
+    if base.has_operator:
+
+        def matvec(x: np.ndarray, *, measurement=base, transform=plan.transform):
+            return np.asarray(transform @ (measurement.jvp(x) / measurement.y)).reshape(
+                -1
+            )
+
+        def pullback(
+            y: np.ndarray, *, measurement=base, transform=plan.transform
+        ) -> list[VJPContribution]:
+            cotangent = np.asarray(transform.T @ np.asarray(y).reshape(-1)).reshape(-1)
+            return measurement.vjp_contributions(cotangent / measurement.y)
+
+        return Measurement(
+            y=result_y,
+            K=None,
+            Sy=covariance,
+            matvec=matvec,
+            pullback=pullback,
+            n_state=base.n_state,
+            vjp_depth=base.vjp_depth + 1,
+        )
+
+    return Measurement(
+        y=result_y,
+        K=np.asarray(plan.transform @ (base.K / base.y[:, np.newaxis])),
+        Sy=covariance,
+    )
+
+
 class AltitudeWeightedTripletSum(MeasurementVector):
     """Sum normalized spectral triplets on one altitude-dependent output grid.
 
@@ -1043,7 +1300,9 @@ class AltitudeWeightedTripletSum(MeasurementVector):
         self._group_by = group_by
         self._open_altitude_bounds = bool(open_altitude_bounds)
         self._legacy_linear_covariance = bool(legacy_linear_covariance)
+        self._compiled_group_plan_enabled = True
         nearest_wavelength_cache = {}
+        grouped_plan_cache = {}
 
         def y(l1, ctxt, **apply_kwargs):
             del ctxt
@@ -1052,6 +1311,47 @@ class AltitudeWeightedTripletSum(MeasurementVector):
                 for key, value in l1.items()
                 if fnmatch.fnmatch(key, apply_kwargs.get("filter", "*"))
             }
+            if (
+                group_by is not None
+                and self._legacy_linear_covariance
+                and self._compiled_group_plan_enabled
+            ):
+                results = []
+                for key, value in matched.items():
+                    wavelength_grid = np.asarray(value.data["wavelength"])
+                    tangent_altitude = np.asarray(value.data["tangent_altitude"])
+                    group_coordinate = np.asarray(value.data[group_by])
+                    cached = grouped_plan_cache.get(key)
+                    if cached is None or not (
+                        np.array_equal(cached[0], wavelength_grid)
+                        and np.array_equal(cached[1], tangent_altitude)
+                        and np.array_equal(cached[2], group_coordinate)
+                        and cached[3] == value.data["radiance"].dims
+                    ):
+                        plan = _grouped_altitude_triplet_plan(
+                            value,
+                            wavelength=self._wavelength,
+                            weights=self._weights,
+                            normalization_range=self._normalization_range,
+                            altitude_weight_grid=self._altitude_weight_grid,
+                            altitude_weight_values=self._altitude_weight_values,
+                            altitude_range=self._altitude_range,
+                            group_by=group_by,
+                            open_altitude_bounds=self._open_altitude_bounds,
+                        )
+                        cached = (
+                            np.array(wavelength_grid, copy=True),
+                            np.array(tangent_altitude, copy=True),
+                            np.array(group_coordinate, copy=True),
+                            value.data["radiance"].dims,
+                            plan,
+                        )
+                        grouped_plan_cache[key] = cached
+                    results.append(
+                        _apply_grouped_altitude_triplet_plan(value, cached[4])
+                    )
+                return concat(results)
+
             grouped = []
             if group_by is None:
                 grouped.append((matched, {}))
