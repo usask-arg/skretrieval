@@ -8,7 +8,7 @@ dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 license = {text = "MIT"}
-dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2>=2026.8.0', 'simpleeval']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2>=2026.8.1', 'simpleeval']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]
@@ -23,56 +23,13 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest>=8.3.3,<9"]
 legacy = ["sasktran"]
 plotting = ["matplotlib"]
 
-[tool.pixi.project]
-channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64", "linux-ppc64le", "osx-arm64", "win-64"]
-
-[tool.pixi.system-requirements]
-macos = "14.0"
-
-[tool.pixi.target.osx-arm64.dependencies]
-# The SASKTRAN2 wheel bundles libomp, so use an OpenBLAS build without OpenMP.
-libopenblas = { version = "*", build = "pthreads_*" }
-
-[tool.pixi.pypi-dependencies]
-skretrieval = { path = ".", editable = true }
-
-[tool.pixi.dependencies]
-numpy = "*"
-astropy = "*"
-numba = "*"
-xarray = "*"
-netcdf4 = "*"
-appdirs = "*"
-pytest = ">=8.3.3,<9"
-pre-commit = "*"
-ruff = "*"
-
-# Doc dependencies
-[tool.pixi.feature.docs]
-dependencies = {sphinx = "*", "myst-nb" = "*"}
-pypi-dependencies = {sphinx_book_theme = "*", sphinx_design = "*"}
-
-[tool.pixi.feature.py311.dependencies]
-python = "3.11.*"
-[tool.pixi.feature.py312.dependencies]
-python = "3.12.*"
-
-
-[tool.pixi.environments]
-default = ["test", "plotting", "docs"]
-py311 = ["py311"]
-py312 = ["py312"]
-
-[tool.pixi.tasks]
-test = { cmd = "pytest tests/", cwd = "." }
-pre-commit = { cmd = "pre-commit run -a", cwd = "." }
-docs = { cmd = "sphinx-build -b html docs/source docs/build", cwd = "." }
-readthedocs = { cmd = "rm -rf $READTHEDOCS_OUTPUT/html && cp -r docs/build/ $READTHEDOCS_OUTPUT/html", depends-on = ["docs"] }
+[dependency-groups]
+dev = ["pre-commit", "ruff"]
+docs = ["sphinx", "myst-nb", "sphinx-book-theme", "sphinx-design", "matplotlib"]
 
 
 [tool.setuptools_scm]
