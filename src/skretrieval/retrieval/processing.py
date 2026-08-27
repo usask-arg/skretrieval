@@ -369,6 +369,7 @@ class Retrieval:
         elif self._minimizer == "scipy_lsmr":
             scipy_lsmr_kwargs = {
                 "jacobian_mode": "matrix_free",
+                "matrix_free_diagnostics": "none",
                 "x_scale": 1.0,
             }
             scipy_lsmr_kwargs.update(self._minimizer_kwargs)
@@ -402,28 +403,27 @@ class Retrieval:
 
         self._target.update_state_slices()
 
-        min_results = minimizer.retrieve(
-            self._obs_l1, self._forward_model, self._target
-        )
+        try:
+            min_results = minimizer.retrieve(
+                self._obs_l1, self._forward_model, self._target
+            )
 
-        # Reset the enabled flag
-        for _, val in self._state_vector.sv.items():
-            val.enabled = True
+            # Preserve the active state while slicing retrieval diagnostics.
+            final_l1 = self._forward_model.calculate_radiance()
+            state = self._state_vector.describe(min_results)
+        finally:
+            for _, val in self._state_vector.sv.items():
+                val.enabled = True
 
-        for _, val in self._measurement_vector.items():
-            val.enabled = True
-
-        # Post process
-        final_l1 = self._forward_model.calculate_radiance()
-        meas_l1 = self._obs_l1
+            for _, val in self._measurement_vector.items():
+                val.enabled = True
 
         results = {}
 
         results["minimizer"] = min_results
-        results["meas_l1"] = meas_l1
+        results["meas_l1"] = self._obs_l1
         results["simulated_l1"] = final_l1
-
-        results["state"] = self._state_vector.describe(min_results)
+        results["state"] = state
 
         return self._construct_output(results)
 
@@ -478,15 +478,21 @@ def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa:
 @Retrieval.register_state("aerosols", "extinction_profile")
 def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
     if cfg.get("prior_state") is not None:
-        ext = cfg["prior_state"]
+        ext = np.asarray(cfg["prior_state"], dtype=float).copy()
+        if ext.shape != np.asarray(native_alt_grid).shape:
+            msg = "Aerosol prior_state must match the native altitude grid"
+            raise ValueError(msg)
+        if np.any(~np.isfinite(ext)):
+            msg = "Aerosol prior_state must contain only finite values"
+            raise ValueError(msg)
     else:
         aero_const = sk2.test_util.scenarios.test_aerosol_constituent(native_alt_grid)
 
         ext = copy(aero_const.extinction_per_m)
 
-    low_boundary = np.nonzero(ext)[0][0]
-
-    ext[:low_boundary] = ext[low_boundary]
+    nonzero = np.flatnonzero(ext)
+    if nonzero.size:
+        ext[: nonzero[0]] = ext[nonzero[0]]
 
     ext[ext < 1e-15] = 1e-15
 

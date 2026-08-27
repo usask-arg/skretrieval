@@ -329,6 +329,27 @@ def test_scipy_materialized_can_use_linearization_jacobian_source():
     assert "gain_matrix" in result
 
 
+def test_scipy_materialized_accepts_sparse_prior_precision():
+    class SparsePriorTarget(_Target):
+        def inverse_apriori_covariance(self):
+            return sparse.csr_matrix([[2.0]])
+
+    target = SparsePriorTarget()
+    minimizer = SciPyMinimizer(
+        max_nfev=20,
+        ftol=1.0e-12,
+        xtol=1.0e-12,
+        gtol=1.0e-12,
+        verbose=0,
+    )
+
+    result = minimizer.retrieve("measurement", _MaterializedOnlyForwardModel(), target)
+
+    # min 0.5 * ((x - 1)^2 + 2*x^2) is x = 1/3.
+    np.testing.assert_allclose(target.state_vector(), np.array([1 / 3]), atol=1e-8)
+    assert result["minimizer"].success
+
+
 def test_scipy_matrix_free_lbfgsb_uses_operator_gradient():
     target = _Target()
     minimizer = SciPyMinimizer(

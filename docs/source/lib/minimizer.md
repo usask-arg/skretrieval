@@ -24,9 +24,9 @@ materialized path.
 
 The convenience option `minimizer="scipy_lsmr"` uses a SciPy `LinearOperator` and the LSMR trust-region solver.
 Pass controls such as `tr_options={"atol": 1e-4, "btol": 1e-4}` or `tr_options={"maxiter": 10}` through
-`minimizer_kwargs` to limit inner JVP/VJP calls. Full matrix-free diagnostics form the posterior information matrix
-with repeated products and may still be expensive; use `matrix_free_diagnostics="none"` when those diagnostics are
-not needed.
+`minimizer_kwargs` to limit inner JVP/VJP calls. It skips diagnostics by default. Full matrix-free diagnostics form
+the posterior information matrix with repeated products and may still be expensive; request them explicitly with
+`matrix_free_diagnostics="full"` when needed.
 
 The convenience option `minimizer="scipy_lbfgsb"` uses gradient-only L-BFGS-B, requiring VJP products but no JVP
 products during the solve. It defaults to 100 function evaluations, `ftol=1e-8`, no matrix-free diagnostics, and

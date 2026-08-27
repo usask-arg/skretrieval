@@ -71,4 +71,67 @@ def test_simulated_retrieval(minimizer: str, minimizer_kwargs: dict):
         },
     )
 
-    _ = ret.retrieve()
+    result = ret.retrieve()
+
+    if minimizer == "scipy_lsmr":
+        assert "solution_covariance" not in result["minimizer"]
+
+
+def test_retrieval_keeps_active_state_through_output_and_restores_flags(monkeypatch):
+    class Element:
+        enabled = True
+
+    class StateVector:
+        def __init__(self):
+            self.sv = {"inactive": Element(), "active": Element()}
+
+        def describe(self, _result):
+            assert not self.sv["inactive"].enabled
+            assert self.sv["active"].enabled
+            return "state"
+
+    class MeasurementVector:
+        enabled = True
+
+    class Target:
+        def update_state_slices(self):
+            pass
+
+    class ForwardModel:
+        def __init__(self, state_vector):
+            self._state_vector = state_vector
+
+        def calculate_radiance(self):
+            assert not self._state_vector.sv["inactive"].enabled
+            return "simulated"
+
+    minimizer_options = {}
+
+    class Minimizer:
+        def __init__(self, **kwargs):
+            minimizer_options.update(kwargs)
+
+        def retrieve(self, *_args):
+            return {}
+
+    monkeypatch.setattr(
+        "skretrieval.retrieval.processing.SciPyMinimizer",
+        Minimizer,
+    )
+
+    retrieval = skr.Retrieval.__new__(skr.Retrieval)
+    retrieval._minimizer = "scipy_lsmr"
+    retrieval._minimizer_kwargs = {}
+    retrieval._state_vector = StateVector()
+    retrieval._measurement_vector = {"measurement": MeasurementVector()}
+    retrieval._target = Target()
+    retrieval._forward_model = ForwardModel(retrieval._state_vector)
+    retrieval._obs_l1 = "measured"
+
+    result = retrieval.retrieve(enabled_state_elements=["active"])
+
+    assert minimizer_options["matrix_free_diagnostics"] == "none"
+    assert result["state"] == "state"
+    assert result["simulated_l1"] == "simulated"
+    assert all(element.enabled for element in retrieval._state_vector.sv.values())
+    assert retrieval._measurement_vector["measurement"].enabled

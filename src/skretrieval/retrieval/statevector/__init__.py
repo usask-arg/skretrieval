@@ -335,44 +335,46 @@ class StateVector:
 
         start = 0
         for state_element in self._elements:
-            end = start + len(state_element.state())
-            state_slice = slice(start, end)
             describe_kwargs = dict(kwargs)
-            if covar is not None:
-                describe_kwargs["covariance"] = covar[state_slice, state_slice]
-            if averaging_kernel is not None:
-                describe_kwargs["averaging_kernel"] = averaging_kernel[
-                    state_slice, state_slice
-                ]
-            if posterior_variance is not None:
-                describe_kwargs["posterior_variance"] = posterior_variance[state_slice]
-            if posterior_variance_standard_error is not None:
-                describe_kwargs["posterior_variance_standard_error"] = (
-                    posterior_variance_standard_error[state_slice]
-                )
-            if measurement_information is not None:
-                describe_kwargs["measurement_information"] = measurement_information[
-                    state_slice
-                ]
-            if measurement_information_standard_error is not None:
-                describe_kwargs["measurement_information_standard_error"] = (
-                    measurement_information_standard_error[state_slice]
-                )
-            if approximate_averaging_kernel_row_sum is not None:
-                describe_kwargs["approximate_averaging_kernel_row_sum"] = (
-                    approximate_averaging_kernel_row_sum[state_slice]
-                )
-            if averaging_kernel_row_sum is not None:
-                describe_kwargs["averaging_kernel_row_sum"] = averaging_kernel_row_sum[
-                    state_slice
-                ]
-            for name, values in resolution_values.items():
-                describe_kwargs[name] = values[state_slice]
+            if state_element.enabled:
+                end = start + len(state_element.state())
+                state_slice = slice(start, end)
+                if covar is not None:
+                    describe_kwargs["covariance"] = covar[state_slice, state_slice]
+                if averaging_kernel is not None:
+                    describe_kwargs["averaging_kernel"] = averaging_kernel[
+                        state_slice, state_slice
+                    ]
+                if posterior_variance is not None:
+                    describe_kwargs["posterior_variance"] = posterior_variance[
+                        state_slice
+                    ]
+                if posterior_variance_standard_error is not None:
+                    describe_kwargs["posterior_variance_standard_error"] = (
+                        posterior_variance_standard_error[state_slice]
+                    )
+                if measurement_information is not None:
+                    describe_kwargs["measurement_information"] = (
+                        measurement_information[state_slice]
+                    )
+                if measurement_information_standard_error is not None:
+                    describe_kwargs["measurement_information_standard_error"] = (
+                        measurement_information_standard_error[state_slice]
+                    )
+                if approximate_averaging_kernel_row_sum is not None:
+                    describe_kwargs["approximate_averaging_kernel_row_sum"] = (
+                        approximate_averaging_kernel_row_sum[state_slice]
+                    )
+                if averaging_kernel_row_sum is not None:
+                    describe_kwargs["averaging_kernel_row_sum"] = (
+                        averaging_kernel_row_sum[state_slice]
+                    )
+                for name, values in resolution_values.items():
+                    describe_kwargs[name] = values[state_slice]
+                start = end
 
             ds = state_element.describe(**describe_kwargs)
             if ds is not None:
                 all_ds.append(ds)
-
-            start = end
 
         return xr.merge(all_ds)

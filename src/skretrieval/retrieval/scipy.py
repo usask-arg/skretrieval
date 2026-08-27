@@ -707,14 +707,17 @@ class SciPyMinimizer(Minimizer):
 
             y_scaler_inv = np.linalg.cholesky(inv_Sy)
 
-        try:
-            chol_inv_Sa = np.linalg.cholesky(inv_Sa)
-        except np.linalg.LinAlgError:
-            # If the inverse covariance is not positive definite, then we can't use the cholesky
-            # decomposition, but we can use an eigenvalue decomposition
-            eigvals, eigvecs = np.linalg.eigh(inv_Sa)
-            eigvals[eigvals < 0] = 0
-            chol_inv_Sa = np.diag(np.sqrt(eigvals)) @ eigvecs.T
+        prior_whitener = retrieval_target.prior_precision_factor()
+        if sparse.issparse(prior_whitener):
+            prior_whitener = prior_whitener.astype(float).tocsr()
+        else:
+            prior_whitener = np.asarray(prior_whitener, dtype=float)
+        if prior_whitener.ndim != 2 or prior_whitener.shape[1] != len(initial_guess):
+            msg = (
+                "A priori precision factor must be two-dimensional with "
+                "one column per state element"
+            )
+            raise ValueError(msg)
 
         if self._apply_state_scaling:
             x_scaler_inv = np.diag(1 / x_a)
@@ -740,8 +743,10 @@ class SciPyMinimizer(Minimizer):
             # First part of residuals is from y, y_meas - y_ret, and jacobian K
             res = y_ret - y_scaler_inv @ y_meas
             # Second part of residuals is x-x_a, with identity jacobian in scaled space
-            res_x = chol_inv_Sa @ x_scaler @ (x - x_a)
-            K_x = chol_inv_Sa @ x_scaler
+            res_x = prior_whitener @ x_scaler @ (x - x_a)
+            K_x = prior_whitener @ x_scaler
+            if sparse.issparse(K_x):
+                K_x = K_x.toarray()
 
             # To match the cost of the standard "Rodgers" minimizer we have to scale by the number of measurements,
             # and also multiply by 2 since the scipy least squares does 0.5 * res.T @ res

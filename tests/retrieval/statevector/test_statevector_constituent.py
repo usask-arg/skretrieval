@@ -5,7 +5,8 @@ import sasktran2 as sk2
 import xarray as xr
 
 from skretrieval.retrieval.prior import ManualPrior
-from skretrieval.retrieval.processing import Retrieval
+from skretrieval.retrieval.processing import Retrieval, aerosol_extinction_profile
+from skretrieval.retrieval.statevector import StateVector
 from skretrieval.retrieval.statevector.altitude import AltitudeNativeStateVector
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
 
@@ -49,6 +50,38 @@ def test_statevector_constituent_describe_scalar_array():
     assert result["scalar_scalar_property_prior"].item() == 1.0
     assert result["scalar_scalar_property_1sigma_error"].item() == 0.5
     assert result["scalar_scalar_property_averaging_kernel"].item() == 0.8
+
+
+def test_statevector_describe_only_slices_diagnostics_for_enabled_elements():
+    class ScalarArrayConstituent:
+        def __init__(self, value):
+            self.scalar_property = np.array([value])
+
+    disabled = StateVectorElementConstituent(
+        ScalarArrayConstituent(1.0),
+        "disabled",
+        ["scalar_property"],
+        prior={"scalar_property": ManualPrior(np.array([1.0]), np.eye(1))},
+        enabled=False,
+    )
+    enabled = StateVectorElementConstituent(
+        ScalarArrayConstituent(2.0),
+        "enabled",
+        ["scalar_property"],
+        prior={"scalar_property": ManualPrior(np.array([2.0]), np.eye(1))},
+    )
+
+    result = StateVector([disabled, enabled]).describe(
+        {
+            "error_covariance_from_noise": np.array([[0.25]]),
+            "averaging_kernel": np.array([[0.8]]),
+        }
+    )
+
+    assert "disabled_scalar_property" in result
+    assert "disabled_scalar_property_1sigma_error" not in result
+    assert result["enabled_scalar_property_1sigma_error"].item() == 0.5
+    assert result["enabled_scalar_property_averaging_kernel"].item() == 0.8
 
 
 def test_statevector_constituent_linearization_product_scaling():
@@ -159,6 +192,39 @@ def _absorber_config(**kwargs):
     }
     cfg.update(kwargs)
     return cfg
+
+
+def test_aerosol_prior_state_is_copied_and_all_zero_profile_is_supported():
+    altitude_grid = np.arange(0.0, 4000.0, 1000.0)
+    reference = sk2.test_util.scenarios.test_aerosol_constituent(altitude_grid)
+    processor = Retrieval.__new__(Retrieval)
+    processor._optical_property = lambda _name: reference._optical_property
+    supplied_prior = np.zeros_like(altitude_grid)
+    config = {
+        "prior_state": supplied_prior,
+        "prior": {
+            "extinction_per_m": {"value": 0.0},
+            "lognormal_median_radius": {"value": 105.0},
+        },
+        "retrieved_quantities": {
+            "extinction_per_m": {
+                "min_value": 0.0,
+                "max_value": 1.0,
+                "tikh_factor": 1.0,
+                "prior_influence": 1.0,
+            }
+        },
+    }
+
+    element = aerosol_extinction_profile(
+        processor,
+        "aerosol",
+        altitude_grid,
+        config,
+    )
+
+    np.testing.assert_array_equal(supplied_prior, np.zeros_like(altitude_grid))
+    np.testing.assert_array_equal(element.state(), np.full(4, 1.0e-15))
 
 
 def _rodgers_output(num_state: int):
