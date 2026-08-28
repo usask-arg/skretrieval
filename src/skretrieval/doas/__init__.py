@@ -10,6 +10,8 @@ from sklearn.decomposition import PCA
 
 from skretrieval.core.lineshape import Gaussian
 
+from ._convolution import uniform_gaussian_integration_weights
+
 
 def _normalized_filter_weights(
     filter_weights: list[float] | np.ndarray | None,
@@ -402,11 +404,29 @@ def _convolve_template(
         msg = "Template wavelength dimension must match calc_wavel"
         raise ValueError(msg)
 
-    # Build integration weights once and apply to all templates that share the same grid.
-    weights = np.empty((len(output_wavel), len(calc_wavel)), dtype=float)
-    for idx, (center, width) in enumerate(zip(output_wavel, fwhm, strict=False)):
-        gaussian = Gaussian(fwhm=max(float(width), 1e-6))
-        weights[idx] = gaussian.integration_weights(float(center), calc_wavel)
+    calculation_spacing = np.diff(calc_wavel)
+    if calc_wavel.size >= 2 and np.allclose(
+        calculation_spacing,
+        calculation_spacing[0],
+        rtol=1.0e-10,
+        atol=1.0e-12,
+    ):
+        weights = uniform_gaussian_integration_weights(
+            np.ascontiguousarray(calc_wavel, dtype=float),
+            np.ascontiguousarray(output_wavel, dtype=float),
+            np.ascontiguousarray(fwhm, dtype=float),
+        )
+        row_sums = np.sum(weights, axis=1)
+        nonzero = row_sums > 0.0
+        weights[nonzero] /= row_sums[nonzero, np.newaxis]
+    else:
+        # Preserve general support for nonuniform calculation grids.
+        weights = np.empty((len(output_wavel), len(calc_wavel)), dtype=float)
+        for idx, (center, width) in enumerate(
+            zip(output_wavel, fwhm, strict=False)
+        ):
+            gaussian = Gaussian(fwhm=max(float(width), 1e-6))
+            weights[idx] = gaussian.integration_weights(float(center), calc_wavel)
 
     convolved = templates @ weights.T
     if is_single_template:
