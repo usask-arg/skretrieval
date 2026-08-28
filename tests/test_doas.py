@@ -32,9 +32,8 @@ def test_uniform_doas_convolution_matches_gaussian_lineshape():
     rng = np.random.default_rng(12_345)
     calculation_wavelength_nm = np.arange(340.123, 380.123, 0.001)
     output_wavelength_nm = np.linspace(345.2, 375.4, 117)
-    normalized_wavelength = (
-        (output_wavelength_nm - np.mean(output_wavelength_nm))
-        / (np.ptp(output_wavelength_nm) / 2.0)
+    normalized_wavelength = (output_wavelength_nm - np.mean(output_wavelength_nm)) / (
+        np.ptp(output_wavelength_nm) / 2.0
     )
     fwhm_nm = 0.83 + 0.12 * normalized_wavelength
     templates = rng.normal(size=(7, calculation_wavelength_nm.size))

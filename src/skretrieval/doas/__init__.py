@@ -422,9 +422,7 @@ def _convolve_template(
     else:
         # Preserve general support for nonuniform calculation grids.
         weights = np.empty((len(output_wavel), len(calc_wavel)), dtype=float)
-        for idx, (center, width) in enumerate(
-            zip(output_wavel, fwhm, strict=False)
-        ):
+        for idx, (center, width) in enumerate(zip(output_wavel, fwhm, strict=False)):
             gaussian = Gaussian(fwhm=max(float(width), 1e-6))
             weights[idx] = gaussian.integration_weights(float(center), calc_wavel)
 
