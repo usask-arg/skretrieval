@@ -7,7 +7,7 @@ import numpy as np
 import sasktran2 as sk
 
 from skretrieval.core.lineshape import DeltaFunction, LineShape
-from skretrieval.core.sasktranformat import SASKTRANRadiance
+from skretrieval.core.sasktranformat import LinearizedSASKTRANRadiance, SASKTRANRadiance
 from skretrieval.core.sensor.spectrograph import SpectrographOnlySpectral
 from skretrieval.geodetic import geodetic
 from skretrieval.retrieval import ForwardModel
@@ -62,6 +62,7 @@ class StandardForwardModel(ForwardModel):
         self._inst_model = self._construct_inst_model()
 
         self._solar_model = self._construct_solar_model()
+        self._linearization_tangent_templates = {}
 
     @abc.abstractmethod
     def _construct_model_geometry(self):
@@ -119,6 +120,28 @@ class StandardForwardModel(ForwardModel):
 
         return engines
 
+    def _append_instrument_result(self, l1: dict, key: str, radiance) -> None:
+        model_result = self._inst_model[key].model_radiance(radiance, None)
+        if isinstance(model_result, dict):
+            if len(model_result) == 1:
+                l1[key] = next(iter(model_result.values()))
+            else:
+                l1.update(
+                    {f"{key}_{name}": value for name, value in model_result.items()}
+                )
+        else:
+            l1[key] = model_result
+
+        self._observation.append_information_to_l1(l1)
+
+    def _linearize(self, key: str, *, prepare_parameters=None):
+        if not hasattr(self._engine[key], "linearize"):
+            msg = "Installed SASKTRAN2 does not provide Engine.linearize()"
+            raise NotImplementedError(msg)
+        return self._engine[key].linearize(
+            self._atmosphere[key], prepare_parameters=prepare_parameters
+        )
+
     def calculate_radiance(self):
         l1 = {}
         for key in self._engine:
@@ -126,18 +149,112 @@ class StandardForwardModel(ForwardModel):
             sk2_rad = self._state_vector.post_process_sk2_radiances(sk2_rad)
             sk2_rad = SASKTRANRadiance.from_sasktran2(sk2_rad)
 
-            model_result = self._inst_model[key].model_radiance(sk2_rad, None)
+            self._append_instrument_result(l1, key, sk2_rad)
 
-            if isinstance(model_result, dict):
-                if len(model_result) == 1:
-                    l1[key] = next(iter(model_result.values()))
-                else:
-                    for k, v in model_result.items():
-                        l1[f"{key}_{k}"] = v
-            else:
-                l1[key] = model_result
+        return l1
 
-            self._observation.append_information_to_l1(l1)
+    def calculate_materialized_linearized_radiance(self):
+        """Calculate radiance and materialize SASKTRAN2's lazy Jacobian."""
+        l1 = {}
+        for key in self._engine:
+            linearization = self._linearize(key)
+            jacobian = linearization.jacobian
+            sk2_rad = jacobian.rename(
+                {name: f"wf_{name}" for name in jacobian.data_vars}
+            )
+            sk2_rad["radiance"] = linearization.value
+            sk2_rad = self._state_vector.post_process_sk2_radiances(sk2_rad)
+            sk2_rad = SASKTRANRadiance.from_sasktran2(sk2_rad)
+
+            self._append_instrument_result(l1, key, sk2_rad)
+
+        return l1
+
+    @staticmethod
+    def _is_materialized_linearization_backend(backend) -> bool:
+        return getattr(backend, "value", str(backend)) == "materialized_jacobian"
+
+    def calculate_linearized_radiance(self):
+        """Calculate radiance carrying products in retrieval-state coordinates."""
+        self._state_vector.check_linearization_product_support()
+
+        l1 = {}
+        for key in self._engine:
+            tangent_template = self._linearization_tangent_templates.get(key)
+            prepare_parameters = (
+                None
+                if tangent_template is None
+                else self._state_vector.linearization_parameter_names(tangent_template)
+            )
+            linearization = self._linearize(key, prepare_parameters=prepare_parameters)
+            required_attributes = (
+                "backends",
+                "jvp",
+                "value",
+                "vjp",
+                "tangent_template",
+            )
+            if any(not hasattr(linearization, attr) for attr in required_attributes):
+                msg = (
+                    "Installed SASKTRAN2 linearization does not provide the "
+                    "required JVP/VJP interface"
+                )
+                raise NotImplementedError(msg)
+            if any(
+                self._is_materialized_linearization_backend(backend)
+                for backend in linearization.backends.values()
+            ):
+                msg = (
+                    "SASKTRAN2 selected a materialized linearization backend; "
+                    "matrix-free retrieval requires native or streaming products."
+                )
+                raise NotImplementedError(msg)
+
+            if tangent_template is None:
+                tangent_template = linearization.tangent_template
+                self._linearization_tangent_templates[key] = tangent_template
+
+            # Enabled elements can change when a Retrieval is reused, while the
+            # SASKTRAN2 parameter grid remains fixed for the lifetime of the model.
+            parameter_names = self._state_vector.linearization_parameter_names(
+                tangent_template
+            )
+            n_state = sum(
+                len(state_element.state())
+                for state_element in self._state_vector.state_elements
+                if state_element.enabled
+            )
+
+            # Bind each engine's linearization into callbacks that outlive this loop.
+            def matvec(
+                x,
+                *,
+                lin=linearization,
+                template=tangent_template,
+                state_vector=self._state_vector,
+            ):
+                tangent = state_vector.linearization_tangent(x, template)
+                return lin.jvp(tangent)
+
+            def rmatvec(
+                cotangent,
+                *,
+                lin=linearization,
+                template=tangent_template,
+                state_vector=self._state_vector,
+                parameters=parameter_names,
+            ):
+                gradient = lin.vjp(cotangent, parameters=parameters)
+                return state_vector.linearization_gradient(gradient, template)
+
+            sk2_rad = LinearizedSASKTRANRadiance.from_sasktran2_linearization(
+                linearization.value,
+                matvec,
+                rmatvec,
+                n_state,
+            )
+
+            self._append_instrument_result(l1, key, sk2_rad)
 
         return l1
 
@@ -409,4 +526,16 @@ class ForwardModelHandler(ForwardModel):
         result = {}
         for _, v in self._forward_models.items():
             result.update(v.calculate_radiance())
+        return result
+
+    def calculate_linearized_radiance(self):
+        result = {}
+        for _, v in self._forward_models.items():
+            result.update(v.calculate_linearized_radiance())
+        return result
+
+    def calculate_materialized_linearized_radiance(self):
+        result = {}
+        for _, v in self._forward_models.items():
+            result.update(v.calculate_materialized_linearized_radiance())
         return result

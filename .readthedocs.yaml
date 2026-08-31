@@ -1,14 +1,16 @@
 version: 2
 
 build:
-  os: ubuntu-22.04
+  os: ubuntu-24.04
   tools:
-    python: "mambaforge-22.9"
+    python: "3.12"
 
-  commands:
-    - mamba install -c conda-forge -c nodefaults pixi
-    - pixi install -e default
-    - pixi run -e default readthedocs
+python:
+  install:
+    - method: uv
+      command: sync
+      groups:
+        - docs
 
 sphinx:
-   configuration: docs/source/conf.py
+  configuration: docs/source/conf.py

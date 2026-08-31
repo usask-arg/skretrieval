@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ["ubuntu-latest", "windows-latest", "macos-latest"]
-        environment: [py311, py312]
+        python-version: ["3.11", "3.12"]
 
     steps:
       - name: Checkout repository
@@ -32,12 +32,15 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Setup environment
-        uses: prefix-dev/setup-pixi@v0.9.0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.0.1
         with:
-          environments: ${{ matrix.environment }}
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
 
-      - name: run pytests
-        shell: bash -el {0}
+      - name: Install dependencies
+        run: uv sync --locked --extra test --extra plotting
+
+      - name: Run tests
         run: |
-          pixi r test
+          uv run --no-sync pytest tests
