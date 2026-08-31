@@ -190,6 +190,27 @@ def test_matrix_free_selector_compositions_match_materialized_jacobian():
     )
 
 
+def test_nearest_select_matches_materialized_and_matrix_free_radiances():
+    materialized_l1, matrix_free_l1 = _l1_pair()
+
+    materialized = mv.select(
+        materialized_l1,
+        wavelength=314.0,
+        method="nearest",
+    )
+    matrix_free = mv.select(
+        matrix_free_l1,
+        wavelength=314.0,
+        method="nearest",
+    )
+
+    _assert_operator_matches(materialized, matrix_free)
+    np.testing.assert_allclose(
+        materialized.y,
+        materialized_l1["measurement"].data["radiance"].sel(wavelength=310.0),
+    )
+
+
 def test_triplet_groups_repeated_orbital_altitudes_by_image():
     materialized_l1, matrix_free_l1 = _orbital_l1_pair()
     materialized_l1 = mv.pre_process(materialized_l1)

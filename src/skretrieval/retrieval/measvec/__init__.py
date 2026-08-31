@@ -305,8 +305,9 @@ def pre_process(
 
 def _measurement_from_selection(radiance: RadianceGridded, **kwargs) -> Measurement:
     """Select one radiance into a materialized or matrix-free measurement."""
+    method = kwargs.pop("method", None)
     if not isinstance(radiance, LinearizedRadianceGridded):
-        selected = select_dataset(radiance.data, kwargs)
+        selected = select_dataset(radiance.data, kwargs, method=method)
         covariance = None
         if "radiance_noise" in selected:
             covariance = sparse.diags(
@@ -321,7 +322,7 @@ def _measurement_from_selection(radiance: RadianceGridded, **kwargs) -> Measurem
             Sy=covariance,
         )
 
-    plan = radiance.selection_plan(**kwargs)
+    plan = radiance.selection_plan(method=method, **kwargs)
 
     def matvec(x: np.ndarray) -> np.ndarray:
         return radiance.selection_jvp(plan, x).reshape(-1)
