@@ -92,6 +92,11 @@ def _retrieve(minimizer, chunk_execution=None):
             max_time_groups_per_engine=1, chunk_execution=chunk_execution
         )
     options = {"max_nfev": 100, "ftol": 1e-10, "verbose": 0}
+    if minimizer == "scipy_lbfgsb":
+        # Small cost changes can still move weakly constrained state entries.
+        # Converge tightly enough for the state comparison across platforms.
+        options.update(max_nfev=300, ftol=1e-13)
+        options["minimize_options"] = {"gtol": 1e-9}
     if minimizer == "scipy":
         options["materialized_jacobian_source"] = "linearization"
     retrieval = OrbitalPlaneRetrieval(
@@ -133,6 +138,11 @@ def test_orbital_retrieval_matches_materialized_solution(
     assert (
         result["minimizer"]["objective_history"][-1]
         < 0.01 * result["minimizer"]["objective_history"][0]
+    )
+    np.testing.assert_allclose(
+        result["minimizer"]["minimizer"].cost,
+        reference["minimizer"]["minimizer"].cost,
+        rtol=1e-6,
     )
     np.testing.assert_allclose(
         result["state"]["aerosol_extinction_per_m"],
