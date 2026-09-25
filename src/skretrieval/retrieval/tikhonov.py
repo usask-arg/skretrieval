@@ -102,3 +102,36 @@ def two_dim_horizontal_second_deriv(numangle, numalt, factor=1, sparse=False):
         # Convert gamma to CSR format for faster matrix operations
         gamma = gamma.asformat("csr")
     return gamma
+
+
+def two_dim_horizontal_first_deriv(numangle, numalt, factor=1, sparse=False):
+    """Calculate a first-difference operator along the horizontal grid.
+
+    State values are ordered with altitude varying fastest, matching both the
+    SASKTRAN2 ``Geometry2D`` layout and NumPy C-order flattening of an array
+    with shape ``(numangle, numalt)``.
+
+    Parameters
+    ----------
+    numangle : int
+        Number of horizontal grid points.
+    numalt : int
+        Number of altitude grid points.
+    factor : float or array-like, optional
+        Scalar factor or one factor per horizontal interval.
+    sparse : bool, optional
+        Return a CSR sparse matrix instead of a dense array.
+    """
+    n = numalt * numangle
+    gamma = lil_matrix((n, n)) if sparse else np.zeros((n, n))
+    for idangle in range(numangle - 1):
+        mfactor = factor[idangle] if np.shape(factor) != () else factor
+        for idalt in range(numalt):
+            idx = idangle * numalt + idalt
+            gamma[idx, idx] = -1 / 2 * mfactor
+            gamma[idx, idx + numalt] = 1 / 2 * mfactor
+
+    if sparse:
+        gamma = gamma.asformat("csr")
+
+    return gamma

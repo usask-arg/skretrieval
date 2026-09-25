@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 from skretrieval.core.radianceformat import RadianceBase
+from skretrieval.retrieval.erroranalysis import information_sqrt
 
 from . import observation
 
@@ -38,7 +39,6 @@ class RetrievalTarget(ABC):
     @abstractmethod
     def measurement_vector(self, l1_data: RadianceBase):
         """
-
         Parameters
         ----------
         l1_data: RadianceBase
@@ -51,6 +51,21 @@ class RetrievalTarget(ABC):
             Keys 'y' for the measurement vector, 'jacobian' for the jacobian of the measurement vector (if weighting
             functions are in l1_data, 'y_error' the covariance of 'y' (if error information is provided in l1_data)
         """
+
+    def matrix_free_measurement_vector(self, l1_data: RadianceBase):
+        """Evaluate modeled measurements used inside matrix-free optimization.
+
+        Targets may override this when modeled error covariance is unnecessary.
+        """
+        return self.measurement_vector(l1_data)
+
+    def observed_measurement_vector(self, l1_data: RadianceBase):
+        """Evaluate observed measurements without requiring a Jacobian.
+
+        Targets may override this to avoid allocating dummy derivative columns
+        when a matrix-free solver only needs the observed values and errors.
+        """
+        return self.measurement_vector(l1_data)
 
     @abstractmethod
     def update_state(self, x: np.ndarray):
@@ -82,6 +97,62 @@ class RetrievalTarget(ABC):
         np.array
             Inverse of the apriori covariance matrix.  If no apriori is used return None.
         """
+
+    def prior_precision_factor(self):
+        """Return the current prior-residual Jacobian in retrieval coordinates.
+
+        Its Gram matrix is the local prior precision. Targets with nonlinear
+        coordinate transforms must also override :meth:`prior_residual`.
+        """
+        information = self.inverse_apriori_covariance()
+        if information is None:
+            return np.zeros((0, len(self.state_vector())))
+        return information_sqrt(information, "A priori inverse covariance")
+
+    def prior_residual(self) -> np.ndarray:
+        """Return prior residuals at the current retrieval state."""
+        factor = self.prior_precision_factor()
+        apriori = self.apriori_state()
+        if apriori is None:
+            return np.zeros(factor.shape[0])
+        delta = np.asarray(self.state_vector()) - np.asarray(apriori)
+        return np.asarray(factor @ delta).reshape(-1)
+
+    def output_state_derivative_by_retrieval_state(self) -> np.ndarray:
+        """Return the local diagonal map from retrieval to reported state."""
+        return np.ones_like(np.asarray(self.state_vector(), dtype=float))
+
+    def averaging_kernel_row_sum_groups(self) -> np.ndarray:
+        """Label state entries whose averaging-kernel columns may be summed.
+
+        The default treats the state as one physical quantity. Targets with a
+        heterogeneous state should return a distinct integer label for each
+        quantity so row sums do not mix variables with incompatible units.
+        """
+        return np.zeros_like(np.asarray(self.state_vector()), dtype=int)
+
+    def averaging_kernel_resolution_coordinates(self) -> dict[str, np.ndarray]:
+        """Return physical coordinates used for averaging-kernel moments."""
+        return {}
+
+    def prior_cost_and_gradient(self) -> tuple[float, np.ndarray]:
+        """Return the quadratic prior cost and gradient at the current state.
+
+        The gradient is expressed in the same coordinates as :meth:`state_vector`.
+        Targets with nonlinear state-coordinate transforms should override this
+        method so the prior remains defined in its native physical coordinates.
+        """
+        state = np.asarray(self.state_vector(), dtype=float).reshape(-1)
+        apriori = self.apriori_state()
+        if apriori is None:
+            return 0.0, np.zeros_like(state)
+        apriori = np.asarray(apriori, dtype=float).reshape(-1)
+        information = self.inverse_apriori_covariance()
+        if information is None:
+            return 0.0, np.zeros_like(state)
+        delta = state - apriori
+        gradient = np.asarray(information @ delta).reshape(-1)
+        return 0.5 * float(delta @ gradient), gradient
 
     def initialize(  # noqa: B027
         self, forward_model: ForwardModel, meas_l1: RadianceBase

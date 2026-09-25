@@ -1,0 +1,640 @@
+from __future__ import annotations
+
+import weakref
+from typing import ClassVar
+
+import numpy as np
+import pytest
+import xarray as xr
+from scipy import sparse
+
+from skretrieval.retrieval import ForwardModel, RetrievalTarget
+from skretrieval.retrieval.forwardmodel import StandardForwardModel
+from skretrieval.retrieval.scipy import (
+    MatrixFreeUnsupportedError,
+    SciPyMinimizer,
+    _LinearizedMeasurementCache,
+    _measurement_weighting,
+)
+
+
+def test_scipy_minimizer_validates_verbose_level():
+    SciPyMinimizer(verbose=0)
+    SciPyMinimizer(verbose=1)
+    SciPyMinimizer(verbose=2)
+    with pytest.raises(ValueError, match="verbose must be 0, 1, or 2"):
+        SciPyMinimizer(verbose=3)
+
+
+class _Target(RetrievalTarget):
+    def __init__(self):
+        self.x = np.array([2.0])
+
+    def state_vector(self):
+        return self.x
+
+    def update_state(self, x: np.ndarray):
+        self.x = np.asarray(x)
+
+    def apriori_state(self):
+        return np.array([0.0])
+
+    def inverse_apriori_covariance(self):
+        return np.array([[0.0]])
+
+    def lower_bound(self):
+        return np.array([-np.inf])
+
+    def upper_bound(self):
+        return np.array([np.inf])
+
+    def measurement_vector(self, l1_data):
+        if l1_data == "measurement":
+            return {"y": np.array([1.0]), "y_error": np.eye(1)}
+        if l1_data == "linearized_operator":
+            return {
+                "y": np.asarray([self.x[0]]),
+                "jacobian_operator": _IdentityOperator(),
+                "y_error": np.eye(1),
+            }
+        return {
+            "y": np.asarray([self.x[0]]),
+            "jacobian": np.ones((1, 1)),
+            "y_error": np.eye(1),
+        }
+
+
+class _MappedOutputTarget(_Target):
+    def state_vector_error_output(self, output_dict):
+        result = output_dict.copy()
+        result["mapped_output"] = True
+        return result
+
+
+class _IdentityOperator:
+    n_state = 1
+    shape = (1, 1)
+
+    def jvp(self, x: np.ndarray):
+        return np.asarray(x).reshape(-1)
+
+    def vjp(self, y: np.ndarray):
+        return np.asarray(y).reshape(-1)
+
+
+class _MaterializedOnlyForwardModel(ForwardModel):
+    def __init__(self):
+        self.materialized_calls = 0
+
+    def calculate_radiance(self):
+        self.materialized_calls += 1
+        return "model"
+
+
+class _UnsupportedLinearizedForwardModel(_MaterializedOnlyForwardModel):
+    def calculate_linearized_radiance(self):
+        return "linearized"
+
+
+class _OperatorForwardModel(_MaterializedOnlyForwardModel):
+    def calculate_linearized_radiance(self):
+        return "linearized_operator"
+
+
+def test_matrix_free_cache_releases_previous_linearization_before_rebuild():
+    class Target(_Target):
+        def matrix_free_measurement_vector(self, operator):
+            return {
+                "y": np.asarray([self.x[0]]),
+                "jacobian_operator": operator,
+            }
+
+    class ForwardModel:
+        def __init__(self):
+            self.previous_operator = None
+
+        def calculate_linearized_radiance(self):
+            if self.previous_operator is not None:
+                assert self.previous_operator() is None
+            operator = _IdentityOperator()
+            self.previous_operator = weakref.ref(operator)
+            return operator
+
+    forward_model = ForwardModel()
+    cache = _LinearizedMeasurementCache(
+        forward_model,
+        Target(),
+        np.asarray([True]),
+        np.asarray([1.0]),
+    )
+
+    cache.evaluate(np.asarray([0.0]))
+    cache.evaluate(np.asarray([1.0]))
+
+
+class _LinearizationMaterializedForwardModel(_MaterializedOnlyForwardModel):
+    def __init__(self):
+        super().__init__()
+        self.linearization_materialized_calls = 0
+
+    def calculate_materialized_linearized_radiance(self):
+        self.linearization_materialized_calls += 1
+        return "model"
+
+
+class _DenseLinearOperator:
+    def __init__(self, jacobian: np.ndarray):
+        self._jacobian = jacobian
+        self.n_state = jacobian.shape[1]
+        self.shape = jacobian.shape
+
+    def jvp(self, value: np.ndarray):
+        return self._jacobian @ value
+
+    def vjp(self, value: np.ndarray):
+        return self._jacobian.T @ value
+
+
+class _LinearTarget(RetrievalTarget):
+    def __init__(
+        self,
+        jacobian: np.ndarray,
+        measurement: np.ndarray,
+        covariance: np.ndarray,
+    ):
+        self.jacobian = jacobian
+        self.measurement = measurement
+        self.covariance = covariance
+        self.x = np.zeros(jacobian.shape[1])
+
+    def state_vector(self):
+        return self.x
+
+    def update_state(self, x: np.ndarray):
+        self.x = np.asarray(x)
+
+    def apriori_state(self):
+        return np.zeros_like(self.x)
+
+    def inverse_apriori_covariance(self):
+        return np.zeros((len(self.x), len(self.x)))
+
+    def lower_bound(self):
+        return np.full_like(self.x, -np.inf)
+
+    def upper_bound(self):
+        return np.full_like(self.x, np.inf)
+
+    def measurement_vector(self, l1_data):
+        if l1_data == "measurement":
+            return {"y": self.measurement, "y_error": self.covariance}
+        return {
+            "y": self.jacobian @ self.x,
+            "jacobian_operator": _DenseLinearOperator(self.jacobian),
+            "y_error": self.covariance,
+        }
+
+
+def test_scipy_matrix_free_strict_raises_when_unavailable():
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_fallback="raise",
+        max_nfev=1,
+    )
+
+    with pytest.raises(MatrixFreeUnsupportedError):
+        minimizer.retrieve("measurement", _MaterializedOnlyForwardModel(), _Target())
+
+
+def test_scipy_auto_falls_back_to_materialized_when_unavailable():
+    forward_model = _UnsupportedLinearizedForwardModel()
+    minimizer = SciPyMinimizer(jacobian_mode="auto", max_nfev=1)
+
+    with pytest.warns(RuntimeWarning, match="falling back"):
+        result = minimizer.retrieve("measurement", forward_model, _Target())
+
+    assert forward_model.materialized_calls > 0
+    assert "gain_matrix" in result
+
+
+def test_scipy_matrix_free_can_skip_operator_diagnostics_and_accept_tr_options():
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        tr_options={"maxiter": 1},
+        max_nfev=1,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), _Target())
+
+    assert "minimizer" in result
+
+
+def test_scipy_matrix_free_uses_jacobian_free_observed_measurements():
+    class Target(_Target):
+        def measurement_vector(self, l1_data):
+            if l1_data == "measurement":
+                msg = "observed path must not request a Jacobian"
+                raise AssertionError(msg)
+            return super().measurement_vector(l1_data)
+
+        def observed_measurement_vector(self, l1_data):
+            assert l1_data == "measurement"
+            return {"y": np.array([1.0]), "y_error": np.eye(1)}
+
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        max_nfev=1,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), Target())
+
+    assert "minimizer" in result
+    assert "averaging_kernel" not in result
+    assert "solution_covariance" not in result
+
+
+def test_scipy_matrix_free_maps_error_output_to_target_coordinates():
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        max_nfev=1,
+    )
+
+    result = minimizer.retrieve(
+        "measurement", _OperatorForwardModel(), _MappedOutputTarget()
+    )
+
+    assert result["mapped_output"]
+
+
+def test_scipy_matrix_free_fisher_diagonal_diagnostic():
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="fisher_diagonal",
+        fisher_diagonal_probe_count=1,
+        posterior_diagonal_probe_count=1,
+        posterior_diagonal_probe_batch_size=1,
+        diagonal_error_random_seed=123,
+        max_nfev=1,
+        verbose=0,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), _Target())
+
+    np.testing.assert_allclose(result["measurement_information_diagonal"], [1.0])
+    np.testing.assert_allclose(result["solution_covariance_diagonal"], [1.0])
+    np.testing.assert_allclose(result["approximate_averaging_kernel_row_sum"], [1.0])
+    assert result["fisher_diagonal_vjp_calls"] == 1
+    assert result["fisher_diagonal_probe_count"] == 1
+    assert result["posterior_diagonal_probe_count"] == 1
+
+
+def test_scipy_matrix_free_diagnostic_only_does_not_update_state():
+    target = _Target()
+    initial_state = target.state_vector().copy()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="fisher_diagonal",
+        fisher_diagonal_probe_count=1,
+        posterior_diagonal_probe_count=1,
+        posterior_diagonal_probe_batch_size=1,
+        diagnostic_only=True,
+        verbose=0,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_array_equal(target.state_vector(), initial_state)
+    assert result["diagnostic_only"]
+    assert result["minimizer"].nfev == 0
+    assert result["minimizer"].nit == 0
+    assert result["minimizer"].success
+
+
+def test_scipy_materialized_can_use_linearization_jacobian_source():
+    forward_model = _LinearizationMaterializedForwardModel()
+    minimizer = SciPyMinimizer(
+        materialized_jacobian_source="linearization",
+        max_nfev=1,
+    )
+
+    result = minimizer.retrieve("measurement", forward_model, _Target())
+
+    assert forward_model.materialized_calls == 0
+    assert forward_model.linearization_materialized_calls > 0
+    assert "gain_matrix" in result
+
+
+def test_scipy_materialized_accepts_sparse_prior_precision():
+    class SparsePriorTarget(_Target):
+        def inverse_apriori_covariance(self):
+            return sparse.csr_matrix([[2.0]])
+
+    target = SparsePriorTarget()
+    minimizer = SciPyMinimizer(
+        max_nfev=20,
+        ftol=1.0e-12,
+        xtol=1.0e-12,
+        gtol=1.0e-12,
+        verbose=0,
+    )
+
+    result = minimizer.retrieve("measurement", _MaterializedOnlyForwardModel(), target)
+
+    # min 0.5 * ((x - 1)^2 + 2*x^2) is x = 1/3.
+    np.testing.assert_allclose(target.state_vector(), np.array([1 / 3]), atol=1e-8)
+    assert result["minimizer"].success
+
+
+def test_scipy_matrix_free_lbfgsb_uses_operator_gradient():
+    target = _Target()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="none",
+        max_nfev=20,
+        minimize_options={"gtol": 1e-10},
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_allclose(target.state_vector(), np.array([1.0]), atol=1e-8)
+    assert result["minimizer"].success
+    assert result["minimizer"].cost < 1e-12
+    assert "averaging_kernel" not in result
+    assert len(result["objective_history"]) == result["minimizer"].nfev
+    np.testing.assert_allclose(
+        result["objective_history"],
+        result["measurement_objective_history"] + result["prior_objective_history"],
+    )
+    assert len(result["gradient_inf_norm_history"]) == result["minimizer"].nfev
+    assert result["objective_history"][0] > result["objective_history"][-1]
+    assert result["vjp_calls"] == result["minimizer"].nfev
+    assert result["vjp_runtime_s"] >= 0
+
+
+def test_scipy_matrix_free_explicit_state_scale_preserves_physical_solution():
+    jacobian = np.diag([1.0, 0.01])
+    measurement = np.array([1.0, 1.0])
+    target = _LinearTarget(jacobian, measurement, np.eye(2))
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="none",
+        matrix_free_state_scale=np.array([1.0, 100.0]),
+        max_nfev=30,
+        ftol=1.0e-12,
+        minimize_options={"gtol": 1.0e-10},
+    )
+
+    minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_allclose(target.state_vector(), [1.0, 100.0], atol=1.0e-8)
+
+
+def test_scipy_matrix_free_explicit_state_scale_is_validated():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        SciPyMinimizer(
+            apply_state_scaling=True,
+            matrix_free_state_scale=2.0,
+        )
+
+    target = _LinearTarget(np.eye(2), np.ones(2), np.eye(2))
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        matrix_free_state_scale=np.array([1.0, 0.0]),
+        max_nfev=1,
+    )
+    with pytest.raises(ValueError, match="finite positive"):
+        minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+
+def test_scipy_matrix_free_lbfgsb_keeps_sparse_prior_precision():
+    class SparsePriorTarget(_Target):
+        def inverse_apriori_covariance(self):
+            return sparse.csr_matrix([[2.0]])
+
+    target = SparsePriorTarget()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lbfgsb",
+        matrix_free_diagnostics="none",
+        max_nfev=30,
+        ftol=1.0e-12,
+        minimize_options={"gtol": 1.0e-10},
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    # min 0.5 * ((x - 1)^2 + 2*x^2) is x = 1/3.
+    np.testing.assert_allclose(target.state_vector(), np.array([1 / 3]), atol=1e-8)
+    assert result["minimizer"].success
+
+
+def test_scipy_matrix_free_lsmr_accepts_rectangular_prior_factor():
+    class FactoredPriorTarget(_Target):
+        def inverse_apriori_covariance(self):
+            return sparse.csr_matrix([[5.0]])
+
+        def prior_precision_factor(self):
+            return sparse.csr_matrix([[1.0], [2.0]])
+
+    target = FactoredPriorTarget()
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_solver="lsmr",
+        matrix_free_diagnostics="none",
+        max_nfev=20,
+        ftol=1.0e-12,
+        xtol=1.0e-12,
+        gtol=1.0e-12,
+    )
+
+    result = minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    # min 0.5 * ((x - 1)^2 + x^2 + (2*x)^2) is x = 1/6.
+    np.testing.assert_allclose(target.state_vector(), np.array([1 / 6]), atol=1e-8)
+    assert result["minimizer"].success
+    assert result["jvp_calls"] > 0
+    assert result["vjp_calls"] > 0
+    assert len(result["objective_history"]) == result["minimizer"].nfev
+    np.testing.assert_allclose(
+        result["objective_history"],
+        result["measurement_objective_history"] + result["prior_objective_history"],
+    )
+
+
+def test_scipy_matrix_free_supports_correlated_measurement_covariance():
+    jacobian = np.array([[1.0, 0.2], [0.5, -1.0], [1.5, 0.7]])
+    measurement = np.array([1.2, -0.3, 2.0])
+    covariance = np.array([[1.0, 0.2, 0.1], [0.2, 0.8, -0.05], [0.1, -0.05, 1.4]])
+    target = _LinearTarget(jacobian, measurement, covariance)
+    expected = np.linalg.solve(
+        jacobian.T @ np.linalg.solve(covariance, jacobian),
+        jacobian.T @ np.linalg.solve(covariance, measurement),
+    )
+
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        max_nfev=20,
+        ftol=1e-12,
+        xtol=1e-12,
+        gtol=1e-12,
+    )
+    minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_allclose(target.state_vector(), expected, atol=1e-9)
+
+
+def test_sparse_block_measurement_covariance_stays_sparse():
+    blocks = [
+        np.array([[1.0, 0.2], [0.2, 0.8]]),
+        np.array([[1.4, -0.1, 0.05], [-0.1, 0.9, 0.2], [0.05, 0.2, 1.2]]),
+    ]
+    covariance = sparse.block_diag(
+        [sparse.csc_matrix(block) for block in blocks], format="csc"
+    )
+
+    weighting = _measurement_weighting(
+        covariance,
+        np.ones(covariance.shape[0], dtype=bool),
+    )
+
+    assert sparse.issparse(weighting.whitener)
+    assert sparse.issparse(weighting.inverse_covariance)
+    np.testing.assert_allclose(
+        weighting.inverse_covariance.toarray(),
+        np.linalg.inv(covariance.toarray()),
+        rtol=1.0e-13,
+        atol=1.0e-14,
+    )
+
+
+def test_scipy_matrix_free_reweights_both_sides_between_passes():
+    jacobian = np.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0], [2.0, -1.0]])
+    measurement = np.array([1.0, 2.0, 3.2, 12.0])
+    covariance = np.array(
+        [
+            [1.0, 0.2, 0.0, 0.1],
+            [0.2, 1.4, -0.1, 0.0],
+            [0.0, -0.1, 0.8, 0.15],
+            [0.1, 0.0, 0.15, 1.2],
+        ]
+    )
+    inverse_covariance = np.linalg.inv(covariance)
+    first_state = np.linalg.solve(
+        jacobian.T @ inverse_covariance @ jacobian,
+        jacobian.T @ inverse_covariance @ measurement,
+    )
+    first_residual = measurement - jacobian @ first_state
+    scale = np.abs(first_residual) / np.median(np.abs(first_residual))
+    scale[scale < 1] = 1
+    downweighted_information = (
+        inverse_covariance / scale[:, np.newaxis] / scale[np.newaxis, :]
+    )
+    expected = np.linalg.solve(
+        jacobian.T @ downweighted_information @ jacobian,
+        jacobian.T @ downweighted_information @ measurement,
+    )
+    target = _LinearTarget(jacobian, measurement, covariance)
+
+    minimizer = SciPyMinimizer(
+        jacobian_mode="matrix_free",
+        matrix_free_diagnostics="none",
+        num_passes=2,
+        max_nfev=20,
+        ftol=1e-12,
+        xtol=1e-12,
+        gtol=1e-12,
+    )
+    minimizer.retrieve("measurement", _OperatorForwardModel(), target)
+
+    np.testing.assert_allclose(target.state_vector(), expected, atol=1e-9)
+
+
+def test_forward_model_refreshes_active_linearization_metadata():
+    class Element:
+        def __init__(self, size: int):
+            self.enabled = True
+            self._state = np.zeros(size)
+
+        def state(self):
+            return self._state
+
+    class StateVector:
+        def __init__(self):
+            self.state_elements = [Element(1), Element(2)]
+
+        def check_linearization_product_support(self):
+            pass
+
+        def linearization_parameter_names(self, _template):
+            return tuple(
+                f"parameter_{index}"
+                for index, element in enumerate(self.state_elements)
+                if element.enabled
+            )
+
+    class Linearization:
+        backends: ClassVar = {"jvp": "native", "vjp": "native"}
+        tangent_template = xr.Dataset(
+            {
+                "parameter_0": xr.DataArray([0.0], dims=["first"]),
+                "parameter_1": xr.DataArray([0.0, 0.0], dims=["second"]),
+            }
+        )
+        value = xr.DataArray(
+            np.ones((1, 1, 1)),
+            dims=["wavelength", "los", "stokes"],
+            coords={"wavelength": [500.0], "los": [0], "stokes": ["I"]},
+        )
+
+        def jvp(self, _tangent):
+            return self.value
+
+        def vjp(self, _cotangent, parameters=None):
+            return self.tangent_template[list(parameters)]
+
+    class TestForwardModel(StandardForwardModel):
+        def _construct_model_geometry(self):
+            pass
+
+        def _construct_model_wavelength(self):
+            pass
+
+        def _construct_viewing_geo(self):
+            pass
+
+        def _construct_inst_model(self):
+            pass
+
+    state_vector = StateVector()
+    forward_model = object.__new__(TestForwardModel)
+    forward_model._state_vector = state_vector
+    forward_model._engine = {"measurement": object()}
+    forward_model._linearization_tangent_templates = {}
+    prepared_parameters = []
+
+    def linearize(_key, *, prepare_parameters=None):
+        prepared_parameters.append(prepare_parameters)
+        return Linearization()
+
+    forward_model._linearize = linearize
+    forward_model._append_instrument_result = lambda l1, key, radiance: l1.__setitem__(
+        key, radiance
+    )
+
+    first = forward_model.calculate_linearized_radiance()
+    assert first["measurement"].n_state == 3
+    assert prepared_parameters == [None]
+
+    state_vector.state_elements[1].enabled = False
+    second = forward_model.calculate_linearized_radiance()
+    assert second["measurement"].n_state == 1
+    assert prepared_parameters == [None, ("parameter_0",)]
