@@ -33,6 +33,11 @@ products during the solve. It defaults to 100 function evaluations, `ftol=1e-8`,
 `target_kwargs={"rescale_state_space": True}`. The bounded internal parameterization prevents line-search trials
 directly at extreme physical bounds. Each default can be overridden through `minimizer_kwargs` or `target_kwargs`.
 
+Both matrix-free solvers preserve the prior penalty in native state coordinates when using the bounded
+transformation. Diagnostics use the prior precision and coordinate transformation at the final retrieved state.
+Custom targets with nonlinear coordinate transformations should implement `prior_residual()` and its current
+Jacobian, `prior_precision_factor()`, for least squares, and `prior_cost_and_gradient()` for L-BFGS-B.
+
 For benchmarking or validation against SASKTRAN2's lazy linearization materializer, keep
 `minimizer="scipy"` and pass `materialized_jacobian_source="linearization"` in `minimizer_kwargs`.
 The default, `materialized_jacobian_source="calculate_radiance"`, preserves the legacy dense

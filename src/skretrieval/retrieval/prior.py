@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import abc
 import dataclasses
+import warnings
 from copy import copy
 
 import numpy as np
 from scipy import sparse
-from scipy.sparse.linalg import spsolve
+from scipy.sparse.linalg import MatrixRankWarning, lsmr, spsolve
 
 from skretrieval.retrieval.erroranalysis import information_sqrt
 from skretrieval.retrieval.statevector import StateVectorElement
@@ -124,6 +125,11 @@ class AdditivePrior(BasePrior):
         x_a_1 = self._prior1.state
         x_a_2 = self._prior2.state
 
+        # A common reference already minimizes both penalties, including when
+        # their sum has an unconstrained null space (e.g. smoothness priors).
+        if np.array_equal(x_a_1, x_a_2):
+            return np.array(x_a_1, copy=True)
+
         full_inv_S_a = inv_S_a_1 + inv_S_a_2
 
         rhs = inv_S_a_1 @ x_a_1 + inv_S_a_2 @ x_a_2
@@ -131,13 +137,38 @@ class AdditivePrior(BasePrior):
         # For some priors the inverse covariance will be singular
         try:
             if sparse.issparse(full_inv_S_a):
-                return spsolve(full_inv_S_a.tocsc(), rhs)
-            return np.linalg.solve(full_inv_S_a, rhs)
-        except (np.linalg.LinAlgError, RuntimeError):
-            # If the inverse covariance is singular, we can't solve the system
-            # TODO: Is this actually right? It seems okay in most cases, but in general
-            # i'm not so sure
-            return 0.5 * (x_a_1 + x_a_2)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", MatrixRankWarning)
+                    state = spsolve(full_inv_S_a.tocsc(), rhs)
+            else:
+                state = np.linalg.solve(full_inv_S_a, rhs)
+            if np.all(np.isfinite(state)):
+                return state
+        except (np.linalg.LinAlgError, RuntimeError, MatrixRankWarning):
+            pass
+
+        # Solve only for a correction to the mean reference so unconstrained
+        # components retain a meaningful value. Averaging alone would change
+        # the combined penalty when the priors have different precisions.
+        reference = 0.5 * (x_a_1 + x_a_2)
+        correction_rhs = rhs - full_inv_S_a @ reference
+        if sparse.issparse(full_inv_S_a):
+            correction = lsmr(
+                full_inv_S_a,
+                correction_rhs,
+                atol=1e-12,
+                btol=1e-12,
+                maxiter=max(100, 10 * len(reference)),
+            )[0]
+        else:
+            correction = np.linalg.lstsq(full_inv_S_a, correction_rhs, rcond=None)[0]
+        state = reference + correction
+        if not np.all(np.isfinite(state)) or not np.allclose(
+            full_inv_S_a @ state, rhs, rtol=1e-8, atol=1e-12
+        ):
+            msg = "Could not determine a finite state for the combined prior"
+            raise np.linalg.LinAlgError(msg)
+        return state
 
     @property
     def inverse_covariance(self):

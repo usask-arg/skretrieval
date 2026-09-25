@@ -99,11 +99,24 @@ class RetrievalTarget(ABC):
         """
 
     def prior_precision_factor(self):
-        """Return ``R`` such that ``R.T @ R`` is the prior precision."""
+        """Return the current prior-residual Jacobian in retrieval coordinates.
+
+        Its Gram matrix is the local prior precision. Targets with nonlinear
+        coordinate transforms must also override :meth:`prior_residual`.
+        """
         information = self.inverse_apriori_covariance()
         if information is None:
             return np.zeros((0, len(self.state_vector())))
         return information_sqrt(information, "A priori inverse covariance")
+
+    def prior_residual(self) -> np.ndarray:
+        """Return prior residuals at the current retrieval state."""
+        factor = self.prior_precision_factor()
+        apriori = self.apriori_state()
+        if apriori is None:
+            return np.zeros(factor.shape[0])
+        delta = np.asarray(self.state_vector()) - np.asarray(apriori)
+        return np.asarray(factor @ delta).reshape(-1)
 
     def output_state_derivative_by_retrieval_state(self) -> np.ndarray:
         """Return the local diagonal map from retrieval to reported state."""

@@ -107,6 +107,10 @@ class LogisticBoundingMixin:
         fraction = (x[both_bounds] - lb[both_bounds]) / width
         eps = np.finfo(internal_x.dtype).eps
         fraction = np.clip(fraction, eps, 1.0 - eps)
+        # Preserve zero at the midpoint despite roundoff in the bounds. A tiny
+        # nonzero initial state gives SciPy's trust-region solver a tiny initial
+        # radius, which can prevent it from taking a meaningful first step.
+        fraction[np.abs(fraction - 0.5) <= eps] = 0.5
         internal_x[both_bounds] = np.log(fraction / (1.0 - fraction))
 
         return internal_x
@@ -507,6 +511,13 @@ class GenericTarget(RetrievalTarget, LogisticBoundingMixin):
         )
         return factor @ mapping
 
+    def prior_residual(self) -> np.ndarray:
+        """Keep the prior quadratic in native state coordinates."""
+        delta = self._native_state_vector() - self._native_apriori_state()
+        return np.asarray(self._state_vector.prior_precision_factor() @ delta).reshape(
+            -1
+        )
+
     def output_state_derivative_by_retrieval_state(self) -> np.ndarray:
         """Map locally from transformed retrieval to native state coordinates."""
         return self._bounded_state_derivative_by_internal()
@@ -524,14 +535,12 @@ class GenericTarget(RetrievalTarget, LogisticBoundingMixin):
             return output_dict
 
         mapping = self._bounded_state_derivative_by_internal()
-        transform = np.diag(mapping)
-        inv_transform = np.diag(1 / mapping)
 
         result = output_dict.copy()
 
         for key in ("error_covariance_from_noise", "solution_covariance"):
             if key in result:
-                result[key] = transform @ result[key] @ transform
+                result[key] = mapping[:, np.newaxis] * np.asarray(result[key]) * mapping
 
         for key in (
             "solution_covariance_diagonal",
@@ -548,11 +557,15 @@ class GenericTarget(RetrievalTarget, LogisticBoundingMixin):
                 result[key] = result[key] / mapping**2
 
         if "gain_matrix" in result:
-            result["gain_matrix"] = transform @ result["gain_matrix"]
+            result["gain_matrix"] = mapping[:, np.newaxis] * np.asarray(
+                result["gain_matrix"]
+            )
 
         if "averaging_kernel" in result:
             result["averaging_kernel"] = (
-                transform @ result["averaging_kernel"] @ inv_transform
+                mapping[:, np.newaxis]
+                * np.asarray(result["averaging_kernel"])
+                / mapping
             )
 
         return result

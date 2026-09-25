@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import sasktran2 as sk
 from scipy import sparse
 
@@ -46,6 +47,39 @@ def test_additive_prior():
 
     _ = p.state
     _ = p.inverse_covariance
+
+
+@pytest.mark.parametrize("shape", [(2, 3), (3, 2), (2, 2)])
+def test_sparse_smoothness_sum_preserves_common_prior_state(shape):
+    state = np.arange(np.prod(shape), dtype=float) + 1
+    combined = prior.TwoDimensionalTikhonov(
+        shape, vertical_factor=1
+    ) + prior.TwoDimensionalTikhonov(shape, horizontal_factor=1)
+    combined.init(type("State", (), {"state": lambda _self: state})())
+
+    np.testing.assert_array_equal(combined.state, state)
+    assert sparse.issparse(combined.inverse_covariance)
+
+
+@pytest.mark.parametrize("use_sparse", [False, True])
+def test_singular_prior_sum_preserves_precision_weighted_state(use_sparse):
+    first_precision = np.diag([1.0, 0.0, 2.0])
+    second_precision = np.diag([2.0, 0.0, 3.0])
+    if use_sparse:
+        first_precision = sparse.csr_matrix(first_precision)
+        second_precision = sparse.csr_matrix(second_precision)
+    first = prior.ManualPrior(np.array([1.0, 20.0, 3.0]), first_precision)
+    second = prior.ManualPrior(np.array([5.0, 10.0, -1.0]), second_precision)
+    combined = first + second
+
+    np.testing.assert_allclose(combined.state, [11 / 3, 15.0, 0.6])
+    trial = np.array([-0.3, 8.0, 2.5])
+    expected_gradient = first_precision @ (trial - first.state) + second_precision @ (
+        trial - second.state
+    )
+    np.testing.assert_allclose(
+        combined.inverse_covariance @ (trial - combined.state), expected_gradient
+    )
 
 
 def test_two_dimensional_tikhonov_accepts_gridded_factors():

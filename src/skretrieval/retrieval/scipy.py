@@ -97,19 +97,13 @@ class _MatrixFreeProblem:
     initial_state: np.ndarray
     lower_bound: np.ndarray
     upper_bound: np.ndarray
-    inverse_apriori_covariance: np.ndarray | sparse.spmatrix
-    prior_whitener: np.ndarray | sparse.spmatrix | None
+    n_prior_residual: int
     measurement: np.ndarray
     weighting: _MeasurementWeighting
     state_scale: np.ndarray
-    output_state_mapping: np.ndarray
     averaging_kernel_row_sum_groups: np.ndarray
     averaging_kernel_resolution_coordinates: dict[str, np.ndarray]
     cache: _LinearizedMeasurementCache
-
-    @property
-    def solver_apriori_state(self) -> np.ndarray:
-        return self.apriori_state / self.state_scale
 
     @property
     def solver_initial_state(self) -> np.ndarray:
@@ -120,10 +114,6 @@ class _MatrixFreeProblem:
         first = self.lower_bound / self.state_scale
         second = self.upper_bound / self.state_scale
         return np.minimum(first, second), np.maximum(first, second)
-
-    @property
-    def n_prior_residual(self) -> int:
-        return 0 if self.prior_whitener is None else int(self.prior_whitener.shape[0])
 
 
 class _LinearizedMeasurementCache:
@@ -640,13 +630,6 @@ class SciPyMinimizer(Minimizer):
         lb = retrieval_target.lower_bound()
         ub = retrieval_target.upper_bound()
 
-        inv_Sa = retrieval_target.inverse_apriori_covariance()
-
-        if inv_Sa is None:
-            # No apriori covariance/regularization
-            # Use initial guess to make the matrices as x_a might be None as well
-            inv_Sa = np.zeros((len(initial_guess), len(initial_guess)))
-
         if x_a is None:
             x_a = np.zeros_like(initial_guess)
 
@@ -726,8 +709,6 @@ class SciPyMinimizer(Minimizer):
             x_scaler_inv = np.eye(len(x_a))
             x_scaler = np.eye(len(x_a))
 
-        x_a = x_scaler_inv @ x_a
-
         def residual_fun(x):
             retrieval_target.update_state(x_scaler @ x)
 
@@ -742,9 +723,10 @@ class SciPyMinimizer(Minimizer):
 
             # First part of residuals is from y, y_meas - y_ret, and jacobian K
             res = y_ret - y_scaler_inv @ y_meas
-            # Second part of residuals is x-x_a, with identity jacobian in scaled space
-            res_x = prior_whitener @ x_scaler @ (x - x_a)
-            K_x = prior_whitener @ x_scaler
+            # Keep prior residuals in their native coordinates, including when
+            # the target applies a nonlinear state transformation.
+            res_x = retrieval_target.prior_residual()
+            K_x = retrieval_target.prior_precision_factor() @ x_scaler
             if sparse.issparse(K_x):
                 K_x = K_x.toarray()
 
@@ -784,6 +766,7 @@ class SciPyMinimizer(Minimizer):
                 **self._kwargs,
             )
 
+            retrieval_target.update_state(x_scaler @ results["minimizer"].x)
             y_ret_dict = retrieval_target.measurement_vector(
                 self._calculate_materialized_radiance(forward_model)
             )
@@ -806,6 +789,9 @@ class SciPyMinimizer(Minimizer):
 
         K = y_ret_dict["jacobian"][good_meas, :]
 
+        inv_Sa = retrieval_target.inverse_apriori_covariance()
+        if inv_Sa is None:
+            inv_Sa = sparse.csr_matrix((len(initial_guess), len(initial_guess)))
         results.update(estimate_error(K, Sy, inv_Sy, inv_Sa))
 
         return retrieval_target.state_vector_error_output(results)
@@ -834,6 +820,7 @@ class SciPyMinimizer(Minimizer):
                 problem,
                 problem.weighting,
                 problem.solver_initial_state,
+                retrieval_target,
             )
             results.update(
                 minimizer=OptimizeResult(
@@ -886,7 +873,7 @@ class SciPyMinimizer(Minimizer):
 
         inverse_apriori_covariance = retrieval_target.inverse_apriori_covariance()
         if inverse_apriori_covariance is None:
-            inverse_apriori_covariance = np.zeros(
+            inverse_apriori_covariance = sparse.csr_matrix(
                 (len(initial_state), len(initial_state))
             )
         elif sparse.issparse(inverse_apriori_covariance):
@@ -1008,12 +995,12 @@ class SciPyMinimizer(Minimizer):
             initial_state=initial_state,
             lower_bound=lower_bound,
             upper_bound=upper_bound,
-            inverse_apriori_covariance=inverse_apriori_covariance,
-            prior_whitener=prior_whitener,
+            n_prior_residual=(
+                0 if prior_whitener is None else int(prior_whitener.shape[0])
+            ),
             measurement=y_meas,
             weighting=weighting,
             state_scale=state_scale,
-            output_state_mapping=output_state_mapping,
             averaging_kernel_row_sum_groups=averaging_kernel_row_sum_groups,
             averaging_kernel_resolution_coordinates=(
                 averaging_kernel_resolution_coordinates
@@ -1035,16 +1022,23 @@ class SciPyMinimizer(Minimizer):
         problem: _MatrixFreeProblem,
         weighting: _MeasurementWeighting,
         solver_state: np.ndarray,
+        retrieval_target: RetrievalTarget,
     ) -> dict:
         evaluated = problem.cache.evaluate(solver_state)
+        # Nonlinear coordinate transforms change both prior precision and the
+        # output mapping. Evaluate them at the same state as the Jacobian.
+        inverse_apriori_covariance = retrieval_target.inverse_apriori_covariance()
+        if inverse_apriori_covariance is None:
+            n_state = len(problem.initial_state)
+            inverse_apriori_covariance = sparse.csr_matrix((n_state, n_state))
         if self._matrix_free_diagnostics == "fisher_diagonal":
             return estimate_fisher_diagonal_error_from_operator(
                 evaluated["operator"],
                 weighting.inverse_covariance,
-                problem.inverse_apriori_covariance,
-                prior_precision_factor=problem.prior_whitener,
+                inverse_apriori_covariance,
+                prior_precision_factor=retrieval_target.prior_precision_factor(),
                 output_state_derivative_by_retrieval_state=(
-                    problem.output_state_mapping
+                    retrieval_target.output_state_derivative_by_retrieval_state()
                 ),
                 averaging_kernel_row_sum_groups=(
                     problem.averaging_kernel_row_sum_groups
@@ -1068,7 +1062,7 @@ class SciPyMinimizer(Minimizer):
         return estimate_error_from_operator(
             evaluated["operator"],
             weighting.inverse_covariance,
-            problem.inverse_apriori_covariance,
+            inverse_apriori_covariance,
         )
 
     def _retrieve_matrix_free_lsmr(
@@ -1090,7 +1084,6 @@ class SciPyMinimizer(Minimizer):
         weighting = problem.weighting
         # Match the normalization used by the existing materialized residual.
         normalization = np.sqrt(len(problem.measurement) / 2)
-        solver_apriori = problem.solver_apriori_state
         objective_history = []
         measurement_objective_history = []
         prior_objective_history = []
@@ -1106,9 +1099,7 @@ class SciPyMinimizer(Minimizer):
             evaluation_start = perf_counter()
             evaluated = cache.evaluate(x)
             measurement_residual = weighting.apply(evaluated["y"] - problem.measurement)
-            prior_residual = problem.prior_whitener @ (
-                problem.state_scale * (x - solver_apriori)
-            )
+            prior_residual = retrieval_target.prior_residual()
             residual = (
                 np.concatenate((measurement_residual, prior_residual)) / normalization
             )
@@ -1129,6 +1120,8 @@ class SciPyMinimizer(Minimizer):
         def jacobian_fun(x):
             # The LinearOperator must stay tied to the state where SciPy requested it.
             anchor_x = np.array(x, copy=True)
+            cache.evaluate(anchor_x)
+            prior_whitener = retrieval_target.prior_precision_factor()
 
             def operator():
                 return cache.evaluate(anchor_x)["operator"]
@@ -1138,7 +1131,7 @@ class SciPyMinimizer(Minimizer):
                 dx = np.asarray(dx).reshape(-1)
                 target_direction = problem.state_scale * dx
                 measurement_part = weighting.apply(operator().matvec(target_direction))
-                prior_part = problem.prior_whitener @ target_direction
+                prior_part = prior_whitener @ target_direction
                 result = np.concatenate((measurement_part, prior_part)) / normalization
                 product_statistics["jvp_calls"] += 1
                 product_statistics["jvp_runtime_s"] += perf_counter() - product_start
@@ -1152,7 +1145,7 @@ class SciPyMinimizer(Minimizer):
                 measurement_part = operator().rmatvec(
                     weighting.adjoint(measurement_cotangent)
                 )
-                prior_part = problem.prior_whitener.T @ prior_cotangent
+                prior_part = prior_whitener.T @ prior_cotangent
                 result = (
                     problem.state_scale * (measurement_part + prior_part)
                 ) / normalization
@@ -1212,7 +1205,7 @@ class SciPyMinimizer(Minimizer):
         if self._matrix_free_diagnostics != "none":
             results.update(
                 self._matrix_free_diagnostic_results(
-                    problem, weighting, results["minimizer"].x
+                    problem, weighting, results["minimizer"].x, retrieval_target
                 )
             )
 
@@ -1341,7 +1334,7 @@ class SciPyMinimizer(Minimizer):
         if self._matrix_free_diagnostics != "none":
             results.update(
                 self._matrix_free_diagnostic_results(
-                    problem, weighting, results["minimizer"].x
+                    problem, weighting, results["minimizer"].x, retrieval_target
                 )
             )
 
