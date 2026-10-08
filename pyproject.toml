@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest>=8.3.3,<9"]
+test = ["pytest>=8.3.3"]
 legacy = ["sasktran"]
 plotting = ["matplotlib"]
 
