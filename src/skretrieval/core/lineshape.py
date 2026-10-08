@@ -182,8 +182,8 @@ class Gaussian(LineShape):
         [lower_bound, upper_bound]
         """
         return (
-            -self.max_stdev * self._stdev - center,
-            self.max_stdev * self._stdev - center,
+            -self.max_stdev * self._stdev + center,
+            self.max_stdev * self._stdev + center,
         )
 
     def _analytic_linear_weights(self, mean, available_samples):
@@ -371,8 +371,8 @@ class Rectangle(LineShape):
         """
         weights = np.zeros_like(available_samples)
 
-        # Difference between center of the gaussian and the sample
-        offsets = mean - available_samples
+        # Difference between the sample and the center of the rectangle
+        offsets = available_samples - mean
         # within_width = np.abs(offsets) < self._width
 
         # Interpolation width on the left side of each sample
@@ -546,6 +546,7 @@ class UserLineShape(LineShape):
         try:
             self._left_cutoff = (
                 center
+                - 1
                 - np.nonzero(left_integral / left_integral[-1] >= integration_fraction)[
                     0
                 ][0]
@@ -575,7 +576,7 @@ class UserLineShape(LineShape):
                 available_samples, x_interp, self._line_values, left=0, right=0
             )
         elif self._mode == "integrate":
-            line_shape_interp = self._linear_weights(mean, available_samples, x_interp)
+            line_shape_interp = self._linear_weights(available_samples, x_interp)
         else:
             msg = "UserLineShape mode must be one of simple or integrate"
             raise ValueError(msg)
@@ -598,8 +599,8 @@ class UserLineShape(LineShape):
     def zero_centered(self):
         return self._zero_centered
 
-    def _linear_weights(self, mean, available_samples, xs):
-        offsets = mean - available_samples if self._zero_centered else available_samples
+    def _linear_weights(self, available_samples, xs):
+        offsets = available_samples
 
         # Interpolation width on the left side of each sample
         widths = np.diff(available_samples)

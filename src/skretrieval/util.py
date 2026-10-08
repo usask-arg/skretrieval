@@ -120,5 +120,6 @@ def configure_log():
                 string += " - " + str(extra)
             return string
 
-    logger.addHandler(logging.StreamHandler())
-    logger.handlers[0].setFormatter(ExFormatter())
+    handler = logging.StreamHandler()
+    handler.setFormatter(ExFormatter())
+    logger.addHandler(handler)
