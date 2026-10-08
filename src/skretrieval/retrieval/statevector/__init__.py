@@ -161,7 +161,7 @@ class StateVector:
 
         if drop_old_wf:
             wf_names = [key for key in radiance if key.startswith("wf_")]
-            radiance = radiance.drop(wf_names)
+            radiance = radiance.drop_vars(wf_names)
         return radiance
 
     def check_linearization_product_support(self):
