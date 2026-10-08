@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>64", "wheel", "setuptools-scm>=8.0"]
+requires = ["setuptools>=77", "setuptools-scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +7,8 @@ name = "skretrieval"
 dynamic = ["version"]
 description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["license.md"]
 dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2>=2026.8.1', 'simpleeval', 'scikit-learn']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
@@ -15,7 +16,6 @@ authors = [
 requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
