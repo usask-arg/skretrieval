@@ -6,8 +6,7 @@
 `skretrieval` is an atmospheric retrieval framework developed at the University of Saskatchewan.
 It has been successfully used to retrieve atmospheric properties from satellite instruments such as OSIRIS
 and OMPS-LP, as well as numerous other instruments.  At its core, `skretrieval` is an optimal estimation framework built around
-the [SASKTRAN2 Radiative Transfer Model](https://github.com/usask-arg/sasktran2).  Support for the original
-[SASKTRAN model](https://github.com/usask-arg/sasktran) is available through the `skretrieval.legacy` module.
+the [SASKTRAN2 Radiative Transfer Model](https://github.com/usask-arg/sasktran2).
 
 ## Installation
 ```

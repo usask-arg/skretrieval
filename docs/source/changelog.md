@@ -5,6 +5,10 @@
 - Matrix-free retrievals and orbital-plane tomography support (#61)
 - CI and docs builds migrated to `uv`
 - Python 3.13 and 3.14 are now tested
+- Removed the `skretrieval.legacy` module, `skretrieval.core.platform`, and
+  `SASKTRANRadiance.from_sasktran_legacy_xr`; support for the original SASKTRAN model has been dropped
+- `jdcal` and `astropy` are no longer dependencies
+- Fixed several bugs in the DOAS fitter, lineshapes, and `AdditiveSpline`
 
 ## 2026.7.0
 - Fix docs examples (#58)

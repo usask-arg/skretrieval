@@ -9,7 +9,7 @@ description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 license = "MIT"
 license-files = ["license.md"]
-dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'jdcal', 'astropy', 'sasktran2>=2026.8.1', 'simpleeval', 'scikit-learn']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran2>=2026.8.1', 'simpleeval', 'scikit-learn']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]
@@ -25,7 +25,6 @@ classifiers = [
 
 [project.optional-dependencies]
 test = ["pytest>=8.3.3"]
-legacy = ["sasktran"]
 plotting = ["matplotlib"]
 
 [dependency-groups]
