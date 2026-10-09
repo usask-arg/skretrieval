@@ -263,7 +263,8 @@ def test_gaussian_linear_weights_independent_of_uniform_grid_order():
     forward = lineshape.integration_weights(0.37, samples)
     backward = lineshape.integration_weights(0.37, samples[::-1])
 
-    np.testing.assert_allclose(backward, forward[::-1], rtol=1e-12, atol=1e-15)
+    # Tail weights differ at the 1e-15 level across platforms (x86 vs arm64)
+    np.testing.assert_allclose(backward, forward[::-1], rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.xfail(
