@@ -248,13 +248,14 @@ class AdditiveSpline(StateVectorElement):
         self._wv = np.linspace(
             low_wavelength_nm, high_wavelength_nm, num_wv, endpoint=True
         )
-        self._x = np.ones((num_los, len(self._wv)))
+        self._x = np.zeros((num_los, len(self._wv)))
         self._low_wavelength_nm = low_wavelength_nm
         self._high_wavelength_nm = high_wavelength_nm
         self._s = s
         self._order = order
         self._min_value = min_value
         self._max_value = max_value
+        super().__init__(True)
 
     def state(self) -> np.array:
         return self._x.flatten()
@@ -311,8 +312,9 @@ class AdditiveSpline(StateVectorElement):
             )
         )
 
+        # The spline for each line of sight is added to every stokes component
         for i in range(self._x.shape[0]):
-            full_deriv[i, :, :, :, i] = spline_deriv[i, :, np.newaxis, :]
+            full_deriv[i, :, :, i, :] = spline_deriv[i, :, :, np.newaxis]
 
         return xr.DataArray(
             full_deriv.reshape(
@@ -323,12 +325,12 @@ class AdditiveSpline(StateVectorElement):
                     radiance["radiance"].shape[2],
                 )
             ),
-            dims=["x", "stokes", "wavelength", "los"],
+            dims=["x", "wavelength", "los", "stokes"],
         )
 
     def modify_input_radiance(self, radiance: xr.Dataset):
         wv = radiance["wavelength"].to_numpy()
-        vals = np.ones((len(wv), self._x.shape[0]))
+        vals = np.zeros((len(wv), self._x.shape[0]))
         good = (wv > self._low_wavelength_nm) & (wv < self._high_wavelength_nm)
 
         for i in range(self._x.shape[0]):

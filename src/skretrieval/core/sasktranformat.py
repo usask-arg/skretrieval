@@ -14,8 +14,8 @@ from skretrieval.core.radianceformat import (
 class SASKTRANRadiance:
     def __init__(self, ds: xr.Dataset, collapse_scalar_stokes: bool = True) -> None:
         """
-        Handles conversions between Sasktran2 and Sasktran legacy radiance formats, as well as potentially
-        other RTM radiance output formats.
+        Handles conversions from Sasktran2 radiance output, as well as potentially other RTM radiance
+        output formats.
 
         The base SASKTRAN radiance container contains the following variables:
 
@@ -58,53 +58,6 @@ class SASKTRANRadiance:
     @property
     def data(self) -> xr.Dataset:
         return self._data
-
-    @classmethod
-    def from_sasktran_legacy_xr(
-        cls, sasktran_legacy_radiance: xr.Dataset
-    ) -> SASKTRANRadiance:
-        # Check if we have polarized radiances or unpolarized
-        if "radiance" in sasktran_legacy_radiance:
-            # Scalar
-            sasktran_legacy_radiance["radiance"] = sasktran_legacy_radiance[
-                "radiance"
-            ].expand_dims("stokes")
-
-            for var in list(sasktran_legacy_radiance.variables):
-                if var.startswith("wf_"):
-                    sasktran_legacy_radiance[var] = sasktran_legacy_radiance[
-                        var
-                    ].expand_dims("stokes")
-        else:
-            # Polarized
-            sasktran_legacy_radiance["radiance"] = xr.concat(
-                [
-                    sasktran_legacy_radiance["I"],
-                    sasktran_legacy_radiance["Q"],
-                    sasktran_legacy_radiance["U"],
-                    sasktran_legacy_radiance["V"],
-                ],
-                dim="stokes",
-            )
-
-            sasktran_legacy_radiance = sasktran_legacy_radiance.drop(
-                ["I", "Q", "U", "V"]
-            )
-
-        if "wf_brdf" in sasktran_legacy_radiance:
-            sasktran_legacy_radiance = sasktran_legacy_radiance.drop("wf_brdf")
-
-        sasktran_legacy_radiance = sasktran_legacy_radiance.rename(
-            {"wavelength": "wavelength_nm"}
-        )
-        sasktran_legacy_radiance = sasktran_legacy_radiance.swap_dims(
-            {"wavelength_nm": "spectral_grid"}
-        )
-        sasktran_legacy_radiance.coords["wavenumber_cminv"] = (
-            1e7 / sasktran_legacy_radiance["wavelength_nm"]
-        )
-
-        return cls(sasktran_legacy_radiance)
 
     @classmethod
     def from_sasktran2(

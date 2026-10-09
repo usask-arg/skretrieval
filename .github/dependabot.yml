@@ -9,3 +9,13 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # Keep uv.lock fresh; CI installs with `uv sync --locked`
+  - package-ecosystem: 'uv'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+    groups:
+      python:
+        patterns:
+          - "*"

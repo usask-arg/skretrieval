@@ -282,7 +282,12 @@ class OrbitalPlaneStateVectorElement(StateVectorElementConstituent):
             else:
                 wf = wf.stack(x=parameter_dims)
             active = np.flatnonzero(self._mask(property_name).reshape(-1))
-            wfs.append(wf.isel(x=active).transpose("x", *radiance_dims))
+            wf = wf.isel(x=active).transpose("x", *radiance_dims)
+            # Drop the stacked index labels so they cannot collide with the
+            # radiance coordinates when "wf" is assigned back into it
+            wfs.append(
+                wf.drop_vars([name for name, c in wf.coords.items() if "x" in c.dims])
+            )
 
         return xr.concat(wfs, dim="x")
 

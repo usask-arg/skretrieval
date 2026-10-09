@@ -56,11 +56,7 @@ def _filter_dataarray_wavelength(
     out = xr.DataArray(
         filtered,
         dims=reordered.dims,
-        coords={
-            dim: reordered.coords[dim]
-            for dim in reordered.dims
-            if dim in reordered.coords
-        },
+        coords=reordered.coords,
         attrs=reordered.attrs,
     )
     return out.transpose(*data.dims)
@@ -155,14 +151,18 @@ def _extract_constituent_profile(
     atmo,
     absorber_name: str,
 ) -> tuple[str, np.ndarray]:
-    if absorber_name not in atmo:
+    # sk.Atmosphere has no __contains__ and returns None for unknown names
+    try:
+        constituent = atmo[absorber_name]
+    except KeyError:
+        constituent = None
+    if constituent is None:
         msg = (
             f"Absorber '{absorber_name}' is not present in atmosphere; "
             "cannot build radiative-transfer basis"
         )
         raise ValueError(msg)
 
-    constituent = atmo[absorber_name]
     if hasattr(constituent, "vmr"):
         return "vmr", np.asarray(constituent.vmr, dtype=float).copy()
     if hasattr(constituent, "number_density"):
@@ -405,11 +405,15 @@ def _convolve_template(
         raise ValueError(msg)
 
     calculation_spacing = np.diff(calc_wavel)
-    if calc_wavel.size >= 2 and np.allclose(
-        calculation_spacing,
-        calculation_spacing[0],
-        rtol=1.0e-10,
-        atol=1.0e-12,
+    if (
+        calc_wavel.size >= 2
+        and calculation_spacing[0] > 0
+        and np.allclose(
+            calculation_spacing,
+            calculation_spacing[0],
+            rtol=1.0e-10,
+            atol=1.0e-12,
+        )
     ):
         weights = uniform_gaussian_integration_weights(
             np.ascontiguousarray(calc_wavel, dtype=float),
@@ -1436,7 +1440,8 @@ class DOASFitter:
             )
 
         fit_dims = [dim for dim in radiance_data.dims if dim != "wavelength"]
-        if not fit_dims:
+        is_single_spectrum = not fit_dims
+        if is_single_spectrum:
             fit_dims = ["sample"]
 
         coords = {
@@ -1444,7 +1449,7 @@ class DOASFitter:
             for dim in fit_dims
             if dim in radiance_data.coords
         }
-        if "sample" in fit_dims:
+        if is_single_spectrum:
             coords["sample"] = [0]
         elif fit_dims[0] not in coords:
             coords[fit_dims[0]] = np.arange(radiance_values.shape[0])
