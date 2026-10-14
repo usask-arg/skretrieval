@@ -1813,6 +1813,29 @@ wheels = [
 ]
 
 [[package]]
+name = "pyrebasis"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "scipy", version = "1.18.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/10/b1a4700b458cec6ef10f5109bbe584c8aed8269929216cb8bca02e96f7a3/pyrebasis-0.2.1.tar.gz", hash = "sha256:bcd7b2a573137fc75bf9ce8a50e5eb718b8eb95fb05cf6d664ac070379b7520a", size = 99143 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/11/3c68e4cf18a908dd8e2da5b509b33de609c3556b0ff52d84860f44e7c1a2/pyrebasis-0.2.1-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2f47a1224fb7d433f387db3f1852326d3ef8103a11633044d00edea0bae6d0b8", size = 566425 },
+    { url = "https://files.pythonhosted.org/packages/71/1f/07a77cfc40373872df9d5ab6ac54112e0b6bde9913cbb1e572a0a35507b6/pyrebasis-0.2.1-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:16b5f6bd3c8a94ab4afb14ff51077fbf56046ddef6d31f16165b35fdbd1c4143", size = 545752 },
+    { url = "https://files.pythonhosted.org/packages/3d/c4/08e00d31caac59aa1ba1ee225fc65e7feb357c687be9c0263ef914ac2e85/pyrebasis-0.2.1-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:82d019d6540be7c3ad2b4fd234f8fd6d4cf4a358b630cb89523f6d6133d0f77d", size = 577126 },
+    { url = "https://files.pythonhosted.org/packages/f3/b0/162881b6be574468d4eaa101b42ccb99f06db3dc639aaa8462499ed6ab13/pyrebasis-0.2.1-cp311-abi3-manylinux_2_17_ppc64le.manylinux2014_ppc64le.whl", hash = "sha256:0624fa7657df44727fbdb92db368f9872147fac5cd6c0ad8628bde705ece44e8", size = 665371 },
+    { url = "https://files.pythonhosted.org/packages/54/71/4191e2be11680693531583e56c2baea8716cd7eb971df88a2156259f1df8/pyrebasis-0.2.1-cp311-abi3-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:23dec7aaa796f2ef7921fada1f55c58f5ecd13cd520bccaaeb19ec0abe2a3ecd", size = 636384 },
+    { url = "https://files.pythonhosted.org/packages/52/88/1a94b3583bb525bf8210bcea4fef0bc5f9ff39f13f8574da7f2101c480f5/pyrebasis-0.2.1-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a53f9f803ad975b85c923dea64257e53b417b8344b35af4f88e4bc0d4df9342d", size = 601372 },
+    { url = "https://files.pythonhosted.org/packages/86/63/01d5c8b668525bdc47fdb385073d2d15716f8a843677b52f0fe50f0eb01a/pyrebasis-0.2.1-cp311-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:0eae674ef5e6add81e009d73f9029f19f312d417a190b6f40c1eea75a795795b", size = 755142 },
+    { url = "https://files.pythonhosted.org/packages/77/a5/d737c5fd822212a1800c1700e833b4cbaaf0ab5ad3c21a02bdeb27cb5d12/pyrebasis-0.2.1-cp311-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:6fca1e38c1a5fcad34a2a080770d0ca27146f83b774091c0f5809f6192a807b5", size = 812345 },
+    { url = "https://files.pythonhosted.org/packages/3c/bf/eaa95b8ccee56f368ed01e1c0c6a39d0f447fcb0a5f374143cc2f2db71ea/pyrebasis-0.2.1-cp311-abi3-win_amd64.whl", hash = "sha256:b9ee5b1f1affd106746b3033a3054026d340844f0abdce99e950420c6893e34e", size = 493173 },
+    { url = "https://files.pythonhosted.org/packages/65/57/647b24f17bcda5dfc46dac7636312aa04310e07c71107b9eea83df42742f/pyrebasis-0.2.1-cp311-abi3-win_arm64.whl", hash = "sha256:edba9a3c02b952f5e2e0d7bf72a508dedc5808ae711c809f055813a0f7e814fe", size = 454159 },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2399,6 +2422,7 @@ source = { editable = "." }
 dependencies = [
     { name = "numba" },
     { name = "numpy" },
+    { name = "pyrebasis" },
     { name = "sasktran2" },
     { name = "scikit-learn" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -2434,6 +2458,7 @@ requires-dist = [
     { name = "matplotlib", marker = "extra == 'plotting'" },
     { name = "numba" },
     { name = "numpy" },
+    { name = "pyrebasis", specifier = ">=0.2.1,<0.3" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.3" },
     { name = "sasktran2", specifier = ">=2026.8.1" },
     { name = "scikit-learn" },

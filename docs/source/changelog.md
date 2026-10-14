@@ -9,6 +9,20 @@
   `SASKTRANRadiance.from_sasktran_legacy_xr`; support for the original SASKTRAN model has been dropped
 - `jdcal` and `astropy` are no longer dependencies
 - Fixed several bugs in the DOAS fitter, lineshapes, and `AdditiveSpline`
+- Line shapes are now applied with [rebasis](https://usask-arg.github.io/rebasis/) (`pyrebasis`) as sparse
+  matrices, see `skretrieval.core.lineshape.measurement_matrix`.  The spectrographs, the forward model
+  `lineshape_fn`, and DOAS template convolution accept `rebasis.Space` kernels.  Gaussian integrals are
+  now exact rather than using a fast erf approximation (changes of ~1e-3 relative), and `Rectangle`
+  edges on samples and `UserLineShape(mode="integrate")` are fixed.  The `LineShape` classes are kept for
+  backwards compatibility; custom subclasses still use their `integration_weights`
+- With `spectral_native_coordinate="wavenumber_cminv"`, the forward model grid now spans the line shape
+  bounds in wavenumber.  Previously the bounds (in cm^-1) were applied as offsets in nm, making the grid
+  ~5x too wide near 1.4 um (too narrow beyond ~3.2 um).  Results change slightly where the line shape
+  has significant area outside its `bounds`, e.g. a `UserLineShape` with `integration_fraction < 1`
+- `Spectrograph` samples the field of view response at the model lines of sight, which can be in any
+  order or arrangement, and accepts `rebasis.Space` fields of view.  Previously linear-mode line shapes
+  treated the line of sight angles as a sorted 1D grid, giving wrong weights for unsorted or repeated
+  angles.  Delta function fields of view select the lines of sight closest to the boresight
 
 ## 2026.7.0
 - Fix docs examples (#58)

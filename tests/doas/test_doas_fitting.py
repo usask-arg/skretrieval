@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import rebasis as rb
 import sasktran2 as sk
 import xarray as xr
 from sasktran2.optical.base import OpticalProperty, OpticalQuantities
@@ -181,13 +182,14 @@ def _instrument_model(
     transformed = center + (1.0 + stretch) * (wavelength_nm - center) + shift
     normalized = (transformed - center) / (np.ptp(wavelength_nm) / 2.0)
     fwhm = fwhm_zero + fwhm_slope * normalized
-    weights = np.stack(
-        [
-            Gaussian(fwhm=float(width)).integration_weights(float(mean), calc)
-            for mean, width in zip(transformed, fwhm, strict=True)
-        ]
+    # Gaussians truncated at five standard deviations, integrated against the
+    # linear interpolant of the templates
+    weights = rb.measure(
+        rb.Space.gaussians(transformed, fwhm=fwhm, cutoff=5),
+        rb.Space.hats(calc),
+        "rowsum",
     )
-    return np.atleast_2d(templates) @ weights.T, transformed, fwhm, normalized
+    return (weights @ np.atleast_2d(templates).T).T, transformed, fwhm, normalized
 
 
 def _convolved_references(cross_sections, calibration=None):

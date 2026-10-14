@@ -1,8 +1,25 @@
+"""
+Line shapes for integrating a high resolution measurement down to a lower resolution one.
+
+The instrument models (:py:class:`skretrieval.core.sensor.spectrograph.Spectrograph`,
+:py:class:`skretrieval.core.sensor.spectrograph.SpectrographOnlySpectral`, the forward model
+``lineshape_fn``) apply line shapes through :py:func:`measurement_matrix`, which uses ``rebasis``
+(the ``pyrebasis`` package).  They accept ``rebasis.Space`` kernels directly, which is preferred for
+new code: rebasis offers many more line shapes (Voigt, FTS, super-Gaussian, ...), exact integrals
+and derivatives with respect to the line shape parameters.
+
+The :py:class:`LineShape` classes here are kept for backwards compatibility.  The built-in ones
+convert themselves to rebasis kernels with :py:meth:`LineShape.to_space`; subclasses that only
+implement :py:meth:`LineShape.integration_weights` still work, one channel at a time.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
 import numpy as np
+import rebasis as rb
+import scipy.sparse as sp
 import scipy.special as special
 from numba import vectorize
 
@@ -11,6 +28,8 @@ class LineShape(ABC):
     """
     Base class for implementing line shapes.  A line shape represents integration across a high resolution measurement
     down to a lower resolution measurement.
+
+    New code can use ``rebasis.Space`` kernels instead, see :py:func:`measurement_matrix`.
     """
 
     @abstractmethod
@@ -62,6 +81,31 @@ class LineShape(ABC):
         bool
         """
         return True
+
+    def to_space(self, centers) -> rb.Space:
+        """
+        The line shape as rebasis kernels, one centred at each of ``centers``
+
+        Parameters
+        ----------
+        centers : array_like
+            Centers of the kernels.  Ignored by line shapes that are not zero centered.
+
+        Returns
+        -------
+        rebasis.Space
+        """
+        msg = f"{type(self).__name__} has no rebasis representation"
+        raise NotImplementedError(msg)
+
+    def _rebasis_basis(self) -> str | None:
+        """
+        How :py:func:`measurement_matrix` represents the high resolution samples for this line
+        shape: ``"hats"`` (linear interpolation between the samples, the line shape is integrated),
+        ``"deltas"`` (the line shape is sampled at the samples), ``"nearest"`` (the nearest sample
+        is taken), or None to use :py:meth:`integration_weights`.
+        """
+        return None
 
 
 class Gaussian(LineShape):
@@ -185,6 +229,21 @@ class Gaussian(LineShape):
             -self.max_stdev * self._stdev + center,
             self.max_stdev * self._stdev + center,
         )
+
+    def to_space(self, centers) -> rb.Space:
+        if self._stdev == 0:
+            return rb.Space.deltas(centers)
+        return rb.Space.gaussians(centers, sigma=self._stdev, cutoff=self.max_stdev)
+
+    def _rebasis_basis(self) -> str | None:
+        if self._stdev == 0:
+            return "nearest"
+        if self._mode == "linear":
+            return "hats"
+        if self._mode == "constant":
+            return "deltas"
+        msg = "mode must be one of linear or constant"
+        raise ValueError(msg)
 
     def _analytic_linear_weights(self, mean, available_samples):
         return _gaussian_analytic_linear_weights(
@@ -331,6 +390,12 @@ class DeltaFunction(LineShape):
     def bounds(self, center=0):
         return center, center
 
+    def to_space(self, centers) -> rb.Space:
+        return rb.Space.deltas(centers)
+
+    def _rebasis_basis(self) -> str | None:
+        return "nearest"
+
 
 class Rectangle(LineShape):
     def __init__(self, width, mode="linear"):
@@ -398,6 +463,14 @@ class Rectangle(LineShape):
 
     def bounds(self, center=0):
         return [-self._width / 2 + center, self._width / 2 + center]
+
+    def to_space(self, centers) -> rb.Space:
+        return rb.Space.rectangles(centers, width=self._width)
+
+    def _rebasis_basis(self) -> str | None:
+        # Constant mode excludes samples exactly on either edge, rebasis boxes are half open, so
+        # constant mode keeps using integration_weights
+        return "hats" if self._mode == "linear" else None
 
 
 @vectorize("f8(f8, f8, f8)", nopython=True)
@@ -598,6 +671,20 @@ class UserLineShape(LineShape):
 
     def zero_centered(self):
         return self._zero_centered
+
+    def to_space(self, centers) -> rb.Space:
+        centers = np.atleast_1d(np.asarray(centers, dtype=float))
+        if not self._zero_centered:
+            centers = np.zeros_like(centers)
+        return rb.Space.shifted(centers, self._x_values, self._line_values)
+
+    def _rebasis_basis(self) -> str | None:
+        if self._mode == "simple":
+            return "deltas"
+        if self._mode == "integrate":
+            return "hats"
+        msg = "UserLineShape mode must be one of simple or integrate"
+        raise ValueError(msg)
 
     def _linear_weights(self, available_samples, xs):
         offsets = available_samples
@@ -835,3 +922,137 @@ def _triangle_analytic_linear_weights_helper3(width_right, offset, width):
         ) / (6 * width * width_right)
     else:
         return 0.0
+
+
+def _defining_class(cls: type, name: str) -> type:
+    return next(c for c in cls.__mro__ if name in vars(c))
+
+
+def _rebasis_basis(lineshape: LineShape) -> str | None:
+    cls = type(lineshape)
+    # A subclass that overrides integration_weights but not the rebasis conversion, e.g. a
+    # modified Gaussian, must keep using its own integration_weights
+    if not issubclass(
+        _defining_class(cls, "_rebasis_basis"),
+        _defining_class(cls, "integration_weights"),
+    ):
+        return None
+    return lineshape._rebasis_basis()
+
+
+def measurement_matrix(
+    lineshapes: rb.Space | list[LineShape | rb.Space],
+    centers,
+    samples,
+) -> sp.csr_array:
+    """
+    The matrix W that integrates a high resolution function down to instrument channels,
+    ``low_resolution = W @ high_resolution``.  Each row sums to 1, except for channels that do not
+    overlap the samples, which are 0.
+
+    Parameters
+    ----------
+    lineshapes : rebasis.Space | list[LineShape | rebasis.Space]
+        A rebasis Space with one kernel per channel, or one line shape per channel, where each
+        rebasis Space has a single kernel.  rebasis kernels are integrated against the linear
+        interpolant of the high resolution samples, the function is 0 outside of the samples.
+    centers : array_like | None
+        Center of each channel, used for the :py:class:`LineShape` objects.  rebasis kernels carry
+        their own centers.
+    samples : array_like
+        Coordinates of the high resolution samples, in any order.  Must be distinct unless all line
+        shapes are sampled rather than integrated.
+
+    Returns
+    -------
+    scipy.sparse.csr_array
+        Shape (number of channels, len(samples))
+    """
+    samples = np.asarray(samples, dtype=float)
+    order = np.argsort(samples, kind="stable")
+    sorted_samples = samples[order]
+
+    # Channels grouped by how the samples are represented
+    kernels: dict[str, tuple[list[int], list[rb.Space]]] = {
+        "hats": ([], []),
+        "deltas": ([], []),
+    }
+    nearest: list[int] = []
+    fallback: list[int] = []
+
+    if isinstance(lineshapes, rb.Space):
+        n_channels = len(lineshapes)
+        kernels["hats"] = (list(range(n_channels)), [lineshapes])
+    else:
+        n_channels = len(lineshapes)
+        if centers is None:
+            centers = np.full(n_channels, np.nan)
+        centers = np.broadcast_to(np.asarray(centers, dtype=float), (n_channels,))
+        for i, (lineshape, center) in enumerate(zip(lineshapes, centers, strict=True)):
+            if isinstance(lineshape, rb.Space):
+                if len(lineshape) != 1:
+                    msg = f"channel {i}: a rebasis Space per channel must have one kernel, got {len(lineshape)}"
+                    raise ValueError(msg)
+                basis = "hats"
+            else:
+                basis = _rebasis_basis(lineshape)
+
+            if basis in kernels:
+                kernel = (
+                    lineshape
+                    if isinstance(lineshape, rb.Space)
+                    else lineshape.to_space([center])
+                )
+                kernels[basis][0].append(i)
+                kernels[basis][1].append(kernel)
+            elif basis == "nearest":
+                nearest.append(i)
+            else:
+                fallback.append(i)
+
+    rows, cols, values = [], [], []
+
+    for basis, (channels, spaces) in kernels.items():
+        if not channels:
+            continue
+        if basis == "hats":
+            if np.any(np.diff(sorted_samples) <= 0):
+                msg = "samples must be distinct to integrate line shapes across them"
+                raise ValueError(msg)
+            basis_space = rb.Space.hats(sorted_samples)
+        else:
+            basis_space = rb.Space.deltas(sorted_samples)
+        space = spaces[0] if len(spaces) == 1 else rb.Space.concatenate(spaces)
+        w = rb.measure(space, basis_space, "rowsum").tocoo()
+        rows.append(np.asarray(channels)[w.row])
+        cols.append(order[w.col])
+        values.append(w.data)
+
+    if nearest:
+        c = centers[nearest]
+        right = np.searchsorted(sorted_samples, c).clip(0, len(sorted_samples) - 1)
+        left = (right - 1).clip(0)
+        # Ties go to the lower sample
+        closest = np.where(
+            np.abs(c - sorted_samples[left]) <= np.abs(sorted_samples[right] - c),
+            left,
+            right,
+        )
+        rows.append(np.asarray(nearest))
+        cols.append(order[closest])
+        values.append(np.ones(len(nearest)))
+
+    for i in fallback:
+        weights = lineshapes[i].integration_weights(centers[i], samples)
+        weights = weights / weights.sum()
+        (nonzero,) = np.nonzero(weights)
+        rows.append(np.full(len(nonzero), i))
+        cols.append(nonzero)
+        values.append(weights[nonzero])
+
+    if not rows:
+        return sp.csr_array((n_channels, len(samples)))
+    return sp.csr_array(
+        (np.concatenate(values), (np.concatenate(rows), np.concatenate(cols))),
+        shape=(n_channels, len(samples)),
+    )
