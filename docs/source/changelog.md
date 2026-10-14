@@ -15,6 +15,10 @@
   now exact rather than using a fast erf approximation (changes of ~1e-3 relative), and `Rectangle`
   edges on samples and `UserLineShape(mode="integrate")` are fixed.  The `LineShape` classes are kept for
   backwards compatibility; custom subclasses still use their `integration_weights`
+- With `spectral_native_coordinate="wavenumber_cminv"`, the forward model grid now spans the line shape
+  bounds in wavenumber.  Previously the bounds (in cm^-1) were applied as offsets in nm, making the grid
+  ~5x too wide near 1.4 um (too narrow beyond ~3.2 um).  Results change slightly where the line shape
+  has significant area outside its `bounds`, e.g. a `UserLineShape` with `integration_fraction < 1`
 
 ## 2026.7.0
 - Fix docs examples (#58)

@@ -338,46 +338,23 @@ class SpectrometerMixin:
         """
         sample_wavelengths = self._get_required_wavelength()
 
+        in_wavelength = self._spectral_native_coordinate == "wavelength_nm"
+        res = self._model_res_nm if in_wavelength else self._model_res_cminv
+
         ws = {}
         for k, v in sample_wavelengths.items():
-            if self._spectral_native_coordinate == "wavelength_nm":
-                bounds = [_relative_bounds(self._lineshape_fn(w), w) for w in v]
-                ws[k] = np.unique(
-                    np.concatenate(
-                        [
-                            np.around(
-                                np.arange(
-                                    a, b + self._model_res_nm / 2, self._model_res_nm
-                                )
-                                + w,
-                                self._round_decimal,
-                            )
-                            for (a, b), w in zip(bounds, v)
-                        ]
+            grids = []
+            for w in v:
+                # Line shapes are in the native coordinate
+                center = w if in_wavelength else 1e7 / w
+                a, b = _relative_bounds(self._lineshape_fn(w), center)
+                grids.append(
+                    np.around(
+                        np.arange(a, b + res / 2, res) + center, self._round_decimal
                     )
                 )
-            else:
-                grids = []
-                for w in v:
-                    lineshape = self._lineshape_fn(w)
-                    if isinstance(lineshape, rb.Space):
-                        lower = lineshape.lower.min()
-                        upper = lineshape.upper.max()
-                    else:
-                        # LineShape bounds are applied as offsets in wavelength here
-                        a, b = _relative_bounds(lineshape, 1e7 / w)
-                        lower, upper = 1e7 / (b + w), 1e7 / (a + w)
-                    grids.append(
-                        np.around(
-                            np.arange(
-                                lower,
-                                upper + self._model_res_cminv / 2,
-                                self._model_res_cminv,
-                            ),
-                            self._round_decimal,
-                        )
-                    )
-                ws[k] = 1e7 / np.unique(np.concatenate(grids))[::-1]
+            grid = np.unique(np.concatenate(grids))
+            ws[k] = grid if in_wavelength else 1e7 / grid[::-1]
 
         return ws
 

@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import rebasis as rb
 
-from skretrieval.core.lineshape import DeltaFunction, Gaussian
+from skretrieval.core.lineshape import DeltaFunction, Gaussian, UserLineShape
 from skretrieval.retrieval.forwardmodel import SpectrometerMixin
 
 SAMPLE_WAVELENGTHS = np.array([500.0, 500.5, 600.0])
@@ -64,6 +64,42 @@ def test_rebasis_lineshape_in_wavenumber_covers_kernel_support():
         assert inside.min() <= kernel.lower[0] + res_cminv
         assert inside.max() >= kernel.upper[0] - res_cminv
         assert np.diff(np.sort(inside)).max() <= res_cminv + 1e-6
+
+
+@pytest.mark.parametrize("zero_centered", [True, False])
+def test_lineshape_in_wavenumber_bounds_are_wavenumber_offsets(zero_centered):
+    # A 0.4 cm^-1 FWHM Gaussian, as a LineShape and as rebasis kernels
+    x = np.linspace(-1, 1, 401)
+    values = np.exp(-0.5 * (x / (0.4 / rb.FWHM_PER_SIGMA)) ** 2)
+
+    def lineshape_fn(w):
+        if zero_centered:
+            return UserLineShape(x, values, True, integration_fraction=1.0)
+        return UserLineShape(x + 1e7 / w, values, False, integration_fraction=1.0)
+
+    legacy = _Spectrometer(
+        lineshape_fn,
+        model_res_cminv=0.01,
+        spectral_native_coordinate="wavenumber_cminv",
+    )
+    rebasis = _Spectrometer(
+        lambda w: rb.Space.shifted([1e7 / w], x, values),
+        model_res_cminv=0.01,
+        spectral_native_coordinate="wavenumber_cminv",
+    )
+
+    model_wavenumbers = 1e7 / legacy._construct_model_wavelength()["band"]
+
+    np.testing.assert_allclose(
+        model_wavenumbers, 1e7 / rebasis._construct_model_wavelength()["band"]
+    )
+    # 201 points spanning +-1 cm^-1 around each sample, the two near 500 nm overlap
+    nu = 1e7 / SAMPLE_WAVELENGTHS
+    for center in nu:
+        near = model_wavenumbers[np.abs(model_wavenumbers - center) <= 1.0 + 1e-6]
+        assert near.min() <= center - 1.0 + 0.01
+        assert near.max() >= center + 1.0 - 0.01
+    assert np.all(np.min(np.abs(model_wavenumbers[:, None] - nu), axis=1) <= 1.0 + 0.01)
 
 
 @pytest.mark.parametrize("coordinate", ["wavelength_nm", "wavenumber_cminv"])
