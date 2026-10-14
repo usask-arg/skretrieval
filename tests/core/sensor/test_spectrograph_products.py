@@ -7,7 +7,7 @@ import xarray as xr
 
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
-from skretrieval.core.lineshape import DeltaFunction, Gaussian
+from skretrieval.core.lineshape import DeltaFunction, Gaussian, LineShape, Rectangle
 from skretrieval.core.radianceformat import evaluate_vjp_contributions
 from skretrieval.core.sasktranformat import (
     LinearizedSASKTRANRadiance,
@@ -309,3 +309,103 @@ def test_spatial_spectrograph_products_match_with_broad_lineshape():
     linearized_result = sensor.model_radiance(linearized, orientation)
 
     _assert_products_match(materialized_result, linearized_result)
+
+
+_BORESIGHT = OpticalGeometry(
+    observer=np.array([0.0, 0.0, 7_000_000.0]),
+    look_vector=np.array([0.0, 0.0, -1.0]),
+    local_up=np.array([0.0, 1.0, 0.0]),
+    mjd=55_000.0,
+)
+
+
+def _fov_grid():
+    """Lines of sight on a 2D grid of (horizontal, vertical) angles [rad]"""
+    horiz, vert = np.meshgrid(
+        np.linspace(-0.004, 0.004, 5), np.linspace(-0.006, 0.006, 7), indexing="ij"
+    )
+    return horiz.ravel(), vert.ravel()
+
+
+def _look_vectors(horiz, vert):
+    # For _BORESIGHT the horizontal axis is x and the vertical axis is y
+    los = np.column_stack([np.tan(horiz), np.tan(vert), -np.ones_like(horiz)])
+    return los / np.linalg.norm(los, axis=1, keepdims=True)
+
+
+def _los_weights(horiz_fov, vert_fov, horiz, vert):
+    sensor = Spectrograph(np.array([500.0]), [DeltaFunction()], vert_fov, horiz_fov)
+    _, weights = sensor._construct_interpolators(
+        _BORESIGHT, _look_vectors(horiz, vert), np.array([500.0, 501.0])
+    )
+    return weights[:, 0]
+
+
+def _gaussian(angle, fwhm):
+    return np.exp(-0.5 * (angle / (fwhm / (2 * np.sqrt(2 * np.log(2))))) ** 2)
+
+
+@pytest.mark.parametrize(
+    "fovs",
+    [
+        pytest.param((Gaussian(fwhm=0.004), Gaussian(fwhm=0.008)), id="lineshape"),
+        pytest.param(
+            (
+                rb.Space.gaussians([0.0], fwhm=0.004, cutoff=5),
+                rb.Space.gaussians([0.0], fwhm=0.008, cutoff=5),
+            ),
+            id="rebasis",
+        ),
+    ],
+)
+def test_spectrograph_fov_samples_response_at_lines_of_sight(fovs):
+    horiz, vert = _fov_grid()
+
+    weights = _los_weights(*fovs, horiz, vert)
+
+    expected = _gaussian(horiz, 0.004) * _gaussian(vert, 0.008)
+    np.testing.assert_allclose(weights, expected / expected.sum(), rtol=1e-10)
+
+
+def test_spectrograph_fov_weights_independent_of_line_of_sight_order():
+    horiz, vert = _fov_grid()
+    permutation = np.random.default_rng(3).permutation(len(horiz))
+    fovs = (Gaussian(fwhm=0.004), Rectangle(0.009))
+
+    weights = _los_weights(*fovs, horiz, vert)
+    shuffled = _los_weights(*fovs, horiz[permutation], vert[permutation])
+
+    np.testing.assert_allclose(shuffled, weights[permutation], rtol=1e-12)
+
+
+def test_spectrograph_delta_fov_selects_lines_of_sight_closest_to_boresight():
+    horiz, vert = _fov_grid()
+
+    column = _los_weights(DeltaFunction(), Gaussian(fwhm=0.008), horiz, vert)
+    single = _los_weights(DeltaFunction(), DeltaFunction(), horiz, vert)
+
+    # A delta function horizontally keeps the central column, weighted vertically
+    central = np.abs(horiz) < 1e-12
+    expected = np.where(central, _gaussian(vert, 0.008), 0.0)
+    np.testing.assert_allclose(column, expected / expected.sum(), rtol=1e-10)
+    # Delta functions on both axes keep the boresight
+    np.testing.assert_array_equal(single, central & (np.abs(vert) < 1e-12))
+
+
+def test_spectrograph_custom_fov_uses_integration_weights():
+    class Triangle(LineShape):
+        def integration_weights(self, mean, available_samples, normalize=True):
+            weights = np.maximum(1 - np.abs(available_samples - mean) / 0.005, 0)
+            return weights / weights.sum() if normalize else weights
+
+        def bounds(self, center=0):
+            return center - 0.005, center + 0.005
+
+    horiz, vert = _fov_grid()
+
+    weights = _los_weights(DeltaFunction(), Triangle(), horiz, vert)
+
+    expected = np.where(
+        np.abs(horiz) < 1e-12, np.maximum(1 - np.abs(vert) / 0.005, 0), 0.0
+    )
+    np.testing.assert_allclose(weights, expected / expected.sum(), rtol=1e-10)

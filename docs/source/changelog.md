@@ -19,6 +19,10 @@
   bounds in wavenumber.  Previously the bounds (in cm^-1) were applied as offsets in nm, making the grid
   ~5x too wide near 1.4 um (too narrow beyond ~3.2 um).  Results change slightly where the line shape
   has significant area outside its `bounds`, e.g. a `UserLineShape` with `integration_fraction < 1`
+- `Spectrograph` samples the field of view response at the model lines of sight, which can be in any
+  order or arrangement, and accepts `rebasis.Space` fields of view.  Previously linear-mode line shapes
+  treated the line of sight angles as a sorted 1D grid, giving wrong weights for unsorted or repeated
+  angles.  Delta function fields of view select the lines of sight closest to the boresight
 
 ## 2026.7.0
 - Fix docs examples (#58)

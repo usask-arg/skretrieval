@@ -8,7 +8,7 @@ import xarray as xr
 
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
-from skretrieval.core.lineshape import LineShape, measurement_matrix
+from skretrieval.core.lineshape import LineShape, _rebasis_basis, measurement_matrix
 from skretrieval.core.radianceformat import LinearizedRadianceGridded
 from skretrieval.core.sasktranformat import SASKTRANRadiance
 from skretrieval.core.sensor import Sensor
@@ -23,13 +23,49 @@ def _scalar_stokes(array: xr.DataArray, sensor_name: str) -> xr.DataArray:
     return array.squeeze("stokes", drop=True)
 
 
+# Angular tolerance [rad] for lines of sight equally close to the boresight
+_BORESIGHT_TOLERANCE = 1e-7
+
+
+def _fov_weights(
+    fovs: list[LineShape | rb.Space], angles: list[np.ndarray]
+) -> np.ndarray:
+    """
+    Normalized weight of each line of sight in a field of view that is the product of the
+    responses ``fovs`` along the axes, given the angles of the lines of sight along each axis.
+
+    Responses are sampled at the lines of sight, so the lines of sight should be evenly spaced
+    within the field of view, in any order and arrangement.  Delta function responses select the
+    lines of sight closest to the boresight along their axes.  Line shapes without a rebasis
+    representation use their ``integration_weights``.
+    """
+    weights = np.ones(len(angles[0]))
+    delta_distance = np.zeros(len(angles[0]))
+    for fov, angle in zip(fovs, angles, strict=True):
+        basis = "deltas" if isinstance(fov, rb.Space) else _rebasis_basis(fov)
+        if basis == "nearest":
+            delta_distance += angle**2
+        elif basis in ("hats", "deltas"):
+            kernel = fov if isinstance(fov, rb.Space) else fov.to_space([0.0])
+            if len(kernel) != 1:
+                msg = f"a field of view must have a single kernel, got {len(kernel)}"
+                raise ValueError(msg)
+            weights *= kernel.evaluate(angle).toarray()[:, 0]
+        else:
+            weights *= fov.integration_weights(0, angle)
+
+    delta_distance = np.sqrt(delta_distance)
+    weights[delta_distance > delta_distance.min() + _BORESIGHT_TOLERANCE] = 0
+    return weights / np.nansum(weights)
+
+
 class Spectrograph(Sensor):
     def __init__(
         self,
         wavelength_nm: np.array,
         pixel_shape: rb.Space | list[LineShape | rb.Space],
-        vert_fov: LineShape,
-        horiz_fov: LineShape,
+        vert_fov: LineShape | rb.Space,
+        horiz_fov: LineShape | rb.Space,
         spectral_native_coordinate: str = "wavelength_nm",
     ):
         """
@@ -42,10 +78,15 @@ class Spectrograph(Sensor):
         pixel_shape: rebasis.Space | list[LineShape | rebasis.Space]
             Wavelength line shape of each pixel, see
             :py:func:`skretrieval.core.lineshape.measurement_matrix`
-        vert_fov: LineShape
-            Vertical field of view
-        horiz_fov: LineShape
-            Horizontal field of view
+        vert_fov: LineShape | rebasis.Space
+            Vertical field of view, as a function of angle [rad] from the boresight.  A rebasis
+            Space must have a single kernel
+        horiz_fov: LineShape | rebasis.Space
+            Horizontal field of view, as a function of angle [rad] from the boresight
+
+        The field of view is sampled at the model lines of sight, which should be evenly spaced
+        across it.  A DeltaFunction field of view selects the lines of sight closest to the
+        boresight.
         """
 
         self._wavelength_nm = wavelength_nm
@@ -69,7 +110,6 @@ class Spectrograph(Sensor):
 
         horiz_y_axis = vert_normal
 
-        horiz_angle = []
         vert_angle = np.arctan2(
             np.dot(los_vectors, vert_y_axis), np.dot(los_vectors, x_axis)
         )
@@ -78,16 +118,10 @@ class Spectrograph(Sensor):
             np.dot(los_vectors, horiz_y_axis), np.dot(los_vectors, x_axis)
         )
 
-        horiz_interpolator = self._horiz_fov.integration_weights(
-            0, np.array(horiz_angle)
-        )
-        vert_interpolator = self._vert_fov.integration_weights(0, np.array(vert_angle))
-
-        los_interpolator = np.zeros(len(vert_interpolator))
-        los_interpolator = horiz_interpolator * vert_interpolator
-        los_interpolator /= np.nansum(los_interpolator)
-
-        los_interpolator = los_interpolator.reshape(-1, 1)
+        los_interpolator = _fov_weights(
+            [self._horiz_fov, self._vert_fov],
+            [np.atleast_1d(horiz_angle), np.atleast_1d(vert_angle)],
+        ).reshape(-1, 1)
 
         if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
             self._cached_wavel_interp = measurement_matrix(
