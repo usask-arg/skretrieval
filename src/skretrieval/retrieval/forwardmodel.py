@@ -4,6 +4,7 @@ import abc
 from collections.abc import Callable
 
 import numpy as np
+import rebasis as rb
 import sasktran2 as sk
 
 from skretrieval.core.lineshape import DeltaFunction, LineShape
@@ -259,10 +260,19 @@ class StandardForwardModel(ForwardModel):
         return l1
 
 
+def _relative_bounds(lineshape: LineShape | rb.Space, center: float) -> tuple:
+    """Support of the line shape of the channel at ``center``, relative to ``center``"""
+    if isinstance(lineshape, rb.Space):
+        return lineshape.lower.min() - center, lineshape.upper.max() - center
+    if lineshape.zero_centered():
+        return lineshape.bounds(center=0)
+    return lineshape.bounds(center=-center)
+
+
 class SpectrometerMixin:
     def __init__(
         self,
-        lineshape_fn: Callable[[float], LineShape] | None = None,
+        lineshape_fn: Callable[[float], LineShape | rb.Space] | None = None,
         model_res_nm=0.02,
         model_res_cminv=0.02,
         spectral_native_coordinate="wavelength_nm",
@@ -274,8 +284,12 @@ class SpectrometerMixin:
 
         Parameters
         ----------
-        lineshape_fn : Callable[[float], LineShape] | None, optional
-            Function that takes in wavelength in nm and returns back a LineShape, by default None
+        lineshape_fn : Callable[[float], LineShape | rebasis.Space] | None, optional
+            Function that takes in the wavelength in nm of a sample and returns back its line shape,
+            by default a delta function.  Either a LineShape, or a rebasis.Space with a single
+            kernel in the spectral_native_coordinate, e.g. ``lambda w: rb.Space.gaussians([w],
+            fwhm=0.5)``, or with wavenumber_cminv ``lambda w: rb.Space.gaussians([w],
+            fwhm=0.5).to_wavenumber(jacobian=True)`` for a line shape defined in wavelength.
         model_res_nm : float, optional
             Model Resolution to use in [nm], by default 0.02
         model_res_cminv : float, optional
@@ -327,14 +341,7 @@ class SpectrometerMixin:
         ws = {}
         for k, v in sample_wavelengths.items():
             if self._spectral_native_coordinate == "wavelength_nm":
-                bounds = [
-                    (
-                        self._lineshape_fn(w).bounds(center=0)
-                        if self._lineshape_fn(w).zero_centered()
-                        else self._lineshape_fn(w).bounds(center=-w)
-                    )
-                    for w in v
-                ]
+                bounds = [_relative_bounds(self._lineshape_fn(w), w) for w in v]
                 ws[k] = np.unique(
                     np.concatenate(
                         [
@@ -350,32 +357,27 @@ class SpectrometerMixin:
                     )
                 )
             else:
-                bounds = [
-                    (
-                        self._lineshape_fn(w).bounds(center=0)
-                        if self._lineshape_fn(w).zero_centered()
-                        else self._lineshape_fn(w).bounds(center=-1e7 / w)
-                    )
-                    for w in v
-                ]
-                ws[k] = (
-                    1e7
-                    / np.unique(
-                        np.concatenate(
-                            [
-                                np.around(
-                                    np.arange(
-                                        1e7 / (b + w),
-                                        1e7 / (a + w) + self._model_res_cminv / 2,
-                                        self._model_res_cminv,
-                                    ),
-                                    self._round_decimal,
-                                )
-                                for (a, b), w in zip(bounds, v)
-                            ]
+                grids = []
+                for w in v:
+                    lineshape = self._lineshape_fn(w)
+                    if isinstance(lineshape, rb.Space):
+                        lower = lineshape.lower.min()
+                        upper = lineshape.upper.max()
+                    else:
+                        # LineShape bounds are applied as offsets in wavelength here
+                        a, b = _relative_bounds(lineshape, 1e7 / w)
+                        lower, upper = 1e7 / (b + w), 1e7 / (a + w)
+                    grids.append(
+                        np.around(
+                            np.arange(
+                                lower,
+                                upper + self._model_res_cminv / 2,
+                                self._model_res_cminv,
+                            ),
+                            self._round_decimal,
                         )
-                    )[::-1]
-                )
+                    )
+                ws[k] = 1e7 / np.unique(np.concatenate(grids))[::-1]
 
         return ws
 

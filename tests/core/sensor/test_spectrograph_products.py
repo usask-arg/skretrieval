@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import rebasis as rb
 import xarray as xr
 
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
-from skretrieval.core.lineshape import DeltaFunction
+from skretrieval.core.lineshape import DeltaFunction, Gaussian
 from skretrieval.core.radianceformat import evaluate_vjp_contributions
 from skretrieval.core.sasktranformat import (
     LinearizedSASKTRANRadiance,
@@ -252,3 +253,59 @@ def test_spatial_spectrograph_rejects_polarized_radiance():
 
     with pytest.raises(ValueError, match="only supports scalar"):
         sensor.model_radiance(materialized, orientation)
+
+
+@pytest.mark.parametrize(
+    "pixel_shape",
+    [
+        pytest.param([Gaussian(fwhm=15.0), Gaussian(fwhm=15.0)], id="lineshape"),
+        pytest.param(
+            rb.Space.gaussians([500.0, 515.0], fwhm=15.0, cutoff=5), id="rebasis"
+        ),
+    ],
+)
+@pytest.mark.parametrize("num_stokes", [1, 3])
+def test_spectral_spectrograph_products_match_with_broad_lineshape(
+    pixel_shape, num_stokes
+):
+    materialized, linearized = _radiance_pair(num_stokes)
+    sensor = SpectrographOnlySpectral(
+        np.array([500.0, 515.0]),
+        pixel_shape,
+        stokes_sensitivity={"I": np.array([1.0, 0.0, 0.0, 0.0])},
+    )
+
+    materialized_result = sensor.model_radiance(materialized, None)["I"]
+    linearized_result = sensor.model_radiance(linearized, None)["I"]
+
+    _assert_products_match(materialized_result, linearized_result)
+    w = rb.measure(
+        rb.Space.gaussians([500.0, 515.0], fwhm=15.0, cutoff=5),
+        rb.Space.hats([500.0, 510.0, 520.0]),
+        "rowsum",
+    )
+    np.testing.assert_allclose(
+        materialized_result.data["radiance"],
+        w @ materialized.data["radiance"].isel(stokes=0).to_numpy(),
+    )
+
+
+def test_spatial_spectrograph_products_match_with_broad_lineshape():
+    materialized, linearized = _radiance_pair(1)
+    sensor = Spectrograph(
+        np.array([500.0, 515.0]),
+        rb.Space.gaussians([500.0, 515.0], fwhm=15.0, cutoff=5),
+        DeltaFunction(),
+        DeltaFunction(),
+    )
+    orientation = OpticalGeometry(
+        observer=np.array([0.0, 0.0, 7_000_000.0]),
+        look_vector=np.array([0.0, 0.0, -1.0]),
+        local_up=np.array([0.0, 1.0, 0.0]),
+        mjd=55_000.0,
+    )
+
+    materialized_result = sensor.model_radiance(materialized, orientation)
+    linearized_result = sensor.model_radiance(linearized, orientation)
+
+    _assert_products_match(materialized_result, linearized_result)

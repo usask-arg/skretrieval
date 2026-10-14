@@ -9,6 +9,12 @@
   `SASKTRANRadiance.from_sasktran_legacy_xr`; support for the original SASKTRAN model has been dropped
 - `jdcal` and `astropy` are no longer dependencies
 - Fixed several bugs in the DOAS fitter, lineshapes, and `AdditiveSpline`
+- Line shapes are now applied with [rebasis](https://usask-arg.github.io/rebasis/) (`pyrebasis`) as sparse
+  matrices, see `skretrieval.core.lineshape.measurement_matrix`.  The spectrographs, the forward model
+  `lineshape_fn`, and DOAS template convolution accept `rebasis.Space` kernels.  Gaussian integrals are
+  now exact rather than using a fast erf approximation (changes of ~1e-3 relative), and `Rectangle`
+  edges on samples and `UserLineShape(mode="integrate")` are fixed.  The `LineShape` classes are kept for
+  backwards compatibility; custom subclasses still use their `integration_weights`
 
 ## 2026.7.0
 - Fix docs examples (#58)

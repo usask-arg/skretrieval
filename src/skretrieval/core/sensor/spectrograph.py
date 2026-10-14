@@ -3,11 +3,12 @@ from __future__ import annotations
 from copy import copy
 
 import numpy as np
+import rebasis as rb
 import xarray as xr
 
 import skretrieval.core.radianceformat as radianceformat
 from skretrieval.core import OpticalGeometry
-from skretrieval.core.lineshape import LineShape
+from skretrieval.core.lineshape import LineShape, measurement_matrix
 from skretrieval.core.radianceformat import LinearizedRadianceGridded
 from skretrieval.core.sasktranformat import SASKTRANRadiance
 from skretrieval.core.sensor import Sensor
@@ -26,7 +27,7 @@ class Spectrograph(Sensor):
     def __init__(
         self,
         wavelength_nm: np.array,
-        pixel_shape: list[LineShape],
+        pixel_shape: rb.Space | list[LineShape | rb.Space],
         vert_fov: LineShape,
         horiz_fov: LineShape,
         spectral_native_coordinate: str = "wavelength_nm",
@@ -38,8 +39,9 @@ class Spectrograph(Sensor):
         ----------
         wavelength_nm : np.array
             Central wavelengths for each pixel
-        pixel_shape: LineShape
-            Wavelength line shape
+        pixel_shape: rebasis.Space | list[LineShape | rebasis.Space]
+            Wavelength line shape of each pixel, see
+            :py:func:`skretrieval.core.lineshape.measurement_matrix`
         vert_fov: LineShape
             Vertical field of view
         horiz_fov: LineShape
@@ -88,14 +90,9 @@ class Spectrograph(Sensor):
         los_interpolator = los_interpolator.reshape(-1, 1)
 
         if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
-            wavel_interp = []
-            for cw, p in zip(self._wavelength_nm, self._pixel_shape):
-                weights = p.integration_weights(cw, model_spectral_grid)
-
-                wavel_interp.append(weights / weights.sum())
-
-            wavel_interp = np.vstack(wavel_interp)
-            self._cached_wavel_interp = wavel_interp
+            self._cached_wavel_interp = measurement_matrix(
+                self._pixel_shape, self._wavelength_nm, model_spectral_grid
+            )
             self._cached_wavel_interp_wavel = copy(model_spectral_grid)
 
         return self._cached_wavel_interp, los_interpolator
@@ -112,12 +109,9 @@ class Spectrograph(Sensor):
         )
 
         scalar_radiance = _scalar_stokes(radiance.data["radiance"], type(self).__name__)
-        modelled_radiance = np.einsum(
-            "ij,jk...,kl",
-            wavel_interp,
-            scalar_radiance.to_numpy(),
-            los_interp,
-            optimize=True,
+        modelled_radiance = (
+            rb.apply_along(wavel_interp, scalar_radiance.to_numpy(), axis=0)
+            @ los_interp
         )
 
         data = xr.Dataset(
@@ -142,9 +136,8 @@ class Spectrograph(Sensor):
             if key.startswith("wf"):
                 scalar_wf = _scalar_stokes(radiance.data[key], type(self).__name__)
                 modelled_wf = np.einsum(
-                    "ij,ljk,km->iml",
-                    wavel_interp,
-                    scalar_wf.to_numpy(),
+                    "lik,km->iml",
+                    rb.apply_along(wavel_interp, scalar_wf.to_numpy(), axis=1),
                     los_interp,
                     optimize=True,
                 )
@@ -158,13 +151,7 @@ class Spectrograph(Sensor):
 
             def matvec(x, *, rad=radiance, w=wavel_interp, los=los_interp, tmpl=data):
                 raw = _scalar_stokes(rad.jvp(x), type(self).__name__)
-                values = np.einsum(
-                    "ij,jk...,kl",
-                    w,
-                    raw.to_numpy(),
-                    los,
-                    optimize=True,
-                )
+                values = rb.apply_along(w, raw.to_numpy(), axis=0) @ los
                 return xr.DataArray(
                     values,
                     dims=tmpl["radiance"].dims,
@@ -176,12 +163,13 @@ class Spectrograph(Sensor):
             ):
                 raw = rad.data["radiance"]
                 # Transpose the spectral and spatial convolutions in matvec.
-                values = np.einsum(
-                    "ij,il...,kl",
-                    w,
-                    np.asarray(cotangent).reshape(data["radiance"].shape),
-                    los,
-                    optimize=True,
+                values = (
+                    rb.apply_along(
+                        w.T,
+                        np.asarray(cotangent).reshape(data["radiance"].shape),
+                        axis=0,
+                    )
+                    @ los.T
                 )
                 if "stokes" in raw.dims:
                     values = np.expand_dims(values, raw.get_axis_num("stokes"))
@@ -217,7 +205,7 @@ class SpectrographOnlySpectral(Sensor):
     def __init__(
         self,
         wavelength_nm: np.array,
-        pixel_shape: list[LineShape],
+        pixel_shape: rb.Space | list[LineShape | rb.Space],
         spectral_native_coordinate: str = "wavelength_nm",
         assign_coord: str = "wavelength",
         stokes_sensitivity: dict[str, np.array] | None = None,
@@ -229,8 +217,9 @@ class SpectrographOnlySpectral(Sensor):
         ----------
         wavelength_nm : np.array
             Central wavelengths for each pixel
-        pixel_shape: LineShape
-            Wavelength line shape
+        pixel_shape: rebasis.Space | list[LineShape | rebasis.Space]
+            Line shape of each pixel in the spectral_native_coordinate, see
+            :py:func:`skretrieval.core.lineshape.measurement_matrix`
         spectral_native_coordinate: str
             Coordinate the lineshape is assumed to be a function of
         assign_coord: str
@@ -264,14 +253,9 @@ class SpectrographOnlySpectral(Sensor):
 
     def _construct_interpolators(self, model_spectral_grid):
         if not np.array_equal(model_spectral_grid, self._cached_wavel_interp_wavel):
-            wavel_interp = []
-            for cw, p in zip(self._assign_vals, self._pixel_shape):
-                weights = p.integration_weights(cw, model_spectral_grid)
-
-                wavel_interp.append(weights / weights.sum())
-
-            wavel_interp = np.vstack(wavel_interp)
-            self._cached_wavel_interp = wavel_interp
+            self._cached_wavel_interp = measurement_matrix(
+                self._pixel_shape, self._assign_vals, model_spectral_grid
+            )
             self._cached_wavel_interp_wavel = copy(model_spectral_grid)
 
         return self._cached_wavel_interp
@@ -294,11 +278,8 @@ class SpectrographOnlySpectral(Sensor):
                 coords={"stokes": ["I", "Q", "U", "V"]},
             )
 
-            modelled_radiance = np.einsum(
-                "ij,jk...",
-                wavel_interp,
-                stokes_applied_radiance.to_numpy(),
-                optimize=True,
+            modelled_radiance = rb.apply_along(
+                wavel_interp, stokes_applied_radiance.to_numpy(), axis=0
             )
 
             data = xr.Dataset(
@@ -319,12 +300,9 @@ class SpectrographOnlySpectral(Sensor):
                         coords={"stokes": ["I", "Q", "U", "V"]},
                     )
 
-                    modelled_wf = np.einsum(
-                        "ij,ljk->ikl",
-                        wavel_interp,
-                        stokes_applied_wf.to_numpy(),
-                        optimize=True,
-                    )
+                    modelled_wf = rb.apply_along(
+                        wavel_interp, stokes_applied_wf.to_numpy(), axis=1
+                    ).transpose(1, 2, 0)
 
                     data[key] = (
                         [self._assign_coord, "los", radiance.data[key].dims[0]],
@@ -351,12 +329,7 @@ class SpectrographOnlySpectral(Sensor):
                         dims=["stokes"],
                         coords={"stokes": ["I", "Q", "U", "V"]},
                     )
-                    values = np.einsum(
-                        "ij,jk...",
-                        w,
-                        stokes_applied.to_numpy(),
-                        optimize=True,
-                    )
+                    values = rb.apply_along(w, stokes_applied.to_numpy(), axis=0)
                     return xr.DataArray(
                         values,
                         dims=tmpl["radiance"].dims,
@@ -382,12 +355,9 @@ class SpectrographOnlySpectral(Sensor):
                         .reindex(stokes=raw["stokes"], fill_value=0)
                         .to_numpy()
                     )
-                    return np.einsum(
-                        "ij,ik...,l->jkl",
-                        w,
-                        np.asarray(cotangent),
+                    return np.multiply.outer(
+                        rb.apply_along(w.T, np.asarray(cotangent), axis=0),
                         stokes_weight,
-                        optimize=True,
                     )
 
                 def rmatvec(cotangent, *, rad=radiance, adjoint=raw_cotangent):
