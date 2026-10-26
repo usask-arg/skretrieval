@@ -33,14 +33,14 @@ repos:
 
 # Black, the code formatter, natively supports pre-commit
 - repo: https://github.com/psf/black-pre-commit-mirror
-  rev: 26.10.0
+  rev: 26.10.1
   hooks:
   - id: black
     exclude: ^(docs)
 
 # Check linting and style issues
 - repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: "v0.16.10"
+  rev: "v0.17.2"
   hooks:
     - id: ruff-check
       args: ["--fix", "--show-fixes"]
