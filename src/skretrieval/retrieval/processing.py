@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import ChainMap
 from copy import copy
 from typing import ClassVar
 
@@ -25,16 +26,32 @@ from .target.mvtarget import MeasVecTarget
 
 
 class Retrieval:
-    _optical_property_fns: ClassVar[dict[str, callable]] = {}
-    _prior_fns: ClassVar[dict[str, callable]] = {}
-    _state_fns: ClassVar[dict[str, dict[str, callable]]] = {
-        "absorbers": {},
-        "aerosols": {},
-        "splines": {},
-        "shifts": {},
-        "surface": {},
-        "other": {},
+    _optical_property_fns: ClassVar[ChainMap[str, callable]] = ChainMap()
+    _prior_fns: ClassVar[ChainMap[str, callable]] = ChainMap()
+    _state_fns: ClassVar[dict[str, ChainMap[str, callable]]] = {
+        "absorbers": ChainMap(),
+        "aerosols": ChainMap(),
+        "splines": ChainMap(),
+        "shifts": ChainMap(),
+        "surface": ChainMap(),
+        "other": ChainMap(),
     }
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Each subclass registers into its own map, so subclasses registering the
+        # same name (e.g. one per instrument) do not replace each other. Lookups
+        # fall through to the base classes, including registrations made on them
+        # after the subclass was defined.
+        bases = [b for b in cls.__mro__[1:] if issubclass(b, Retrieval)]
+        cls._optical_property_fns = ChainMap(
+            {}, *(b._optical_property_fns.maps[0] for b in bases)
+        )
+        cls._prior_fns = ChainMap({}, *(b._prior_fns.maps[0] for b in bases))
+        cls._state_fns = {
+            category: ChainMap({}, *(b._state_fns[category].maps[0] for b in bases))
+            for category in Retrieval._state_fns
+        }
 
     def _context_fn(_):
         return {}
