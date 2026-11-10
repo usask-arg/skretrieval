@@ -3,14 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import numpy as np
+import rebasis as rb
 import sasktran2 as sk
 import xarray as xr
 from scipy.optimize import least_squares
 from sklearn.decomposition import PCA
 
-from skretrieval.core.lineshape import Gaussian
-
-from ._convolution import uniform_gaussian_integration_weights
+from skretrieval.core.lineshape import measurement_matrix
 
 
 def _normalized_filter_weights(
@@ -404,33 +403,16 @@ def _convolve_template(
         msg = "Template wavelength dimension must match calc_wavel"
         raise ValueError(msg)
 
-    calculation_spacing = np.diff(calc_wavel)
-    if (
-        calc_wavel.size >= 2
-        and calculation_spacing[0] > 0
-        and np.allclose(
-            calculation_spacing,
-            calculation_spacing[0],
-            rtol=1.0e-10,
-            atol=1.0e-12,
-        )
-    ):
-        weights = uniform_gaussian_integration_weights(
-            np.ascontiguousarray(calc_wavel, dtype=float),
-            np.ascontiguousarray(output_wavel, dtype=float),
-            np.ascontiguousarray(fwhm, dtype=float),
-        )
-        row_sums = np.sum(weights, axis=1)
-        nonzero = row_sums > 0.0
-        weights[nonzero] /= row_sums[nonzero, np.newaxis]
-    else:
-        # Preserve general support for nonuniform calculation grids.
-        weights = np.empty((len(output_wavel), len(calc_wavel)), dtype=float)
-        for idx, (center, width) in enumerate(zip(output_wavel, fwhm, strict=False)):
-            gaussian = Gaussian(fwhm=max(float(width), 1e-6))
-            weights[idx] = gaussian.integration_weights(float(center), calc_wavel)
+    # Gaussians truncated at 5 standard deviations, integrated against the linear interpolant of
+    # the template
+    kernels = rb.Space.gaussians(
+        np.asarray(output_wavel, dtype=float),
+        fwhm=np.maximum(np.asarray(fwhm, dtype=float), 1e-6),
+        cutoff=5,
+    )
+    weights = measurement_matrix(kernels, None, calc_wavel)
 
-    convolved = templates @ weights.T
+    convolved = rb.apply_along(weights, templates, axis=-1)
     if is_single_template:
         return convolved[0]
     return convolved

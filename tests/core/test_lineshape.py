@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import rebasis as rb
 from scipy import integrate, special
 
 from skretrieval.core.lineshape import (
     DeltaFunction,
     Gaussian,
+    LineShape,
     Rectangle,
     UserLineShape,
     fasterf1,
     fasterf2,
     fasterf3,
+    measurement_matrix,
 )
 
 FWHM_PER_STDEV = 2 * np.sqrt(2 * np.log(2))
@@ -590,3 +593,215 @@ def test_user_lineshape_integrate_mode_exact_when_grids_do_not_align():
     np.testing.assert_allclose(weights, expected / expected.sum(), atol=1e-10)
     # Symmetric lineshape: first moment must be at the centre
     np.testing.assert_allclose(weights @ samples, 0.0, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------------------
+# measurement_matrix
+# ---------------------------------------------------------------------------------------
+
+
+def _legacy_matrix(lineshapes, centers, samples):
+    rows = [ls.integration_weights(c, samples) for ls, c in zip(lineshapes, centers)]
+    return np.vstack([r / r.sum() for r in rows])
+
+
+@pytest.mark.parametrize(
+    "lineshape",
+    [
+        pytest.param(Gaussian(stdev=0.7, mode="constant"), id="gaussian_constant"),
+        pytest.param(Rectangle(0.73), id="rectangle_linear"),
+        pytest.param(Rectangle(0.9, mode="constant"), id="rectangle_constant"),
+        pytest.param(
+            UserLineShape(*_asymmetric_lineshape(), zero_centered=True),
+            id="user_simple",
+        ),
+        pytest.param(
+            UserLineShape(
+                _asymmetric_lineshape()[0] + 0.3,
+                _asymmetric_lineshape()[1],
+                zero_centered=False,
+            ),
+            id="user_simple_not_zero_centered",
+        ),
+        pytest.param(DeltaFunction(), id="delta"),
+        pytest.param(Gaussian(stdev=0), id="gaussian_zero_width"),
+    ],
+)
+def test_measurement_matrix_matches_exact_legacy_weights(lineshape):
+    # Line shapes whose legacy weights are exact give the same matrix
+    samples = np.linspace(-5, 5, 101)
+    centers = np.array([0.0, 0.0371, -0.81, 0.3, 1.234])
+    lineshapes = [lineshape] * len(centers)
+
+    w = measurement_matrix(lineshapes, centers, samples)
+
+    assert w.shape == (len(centers), len(samples))
+    np.testing.assert_allclose(
+        w.toarray(), _legacy_matrix(lineshapes, centers, samples), atol=1e-13
+    )
+
+
+@pytest.mark.parametrize("mean", [0.0, 0.123, -1.3])
+def test_measurement_matrix_gaussian_matches_quadrature(mean):
+    stdev = 0.7
+    samples = _nonuniform_grid()
+
+    w = measurement_matrix([Gaussian(stdev=stdev, max_stdev=8)], [mean], samples)
+
+    expected = _quad_weights(
+        lambda x: np.exp(-0.5 * ((x - mean) / stdev) ** 2), samples
+    )
+    # Much more accurate than the legacy weights, see
+    # test_gaussian_linear_weights_match_quadrature
+    np.testing.assert_allclose(w.toarray()[0], expected / expected.sum(), atol=1e-10)
+
+
+def test_measurement_matrix_gaussian_close_to_legacy():
+    samples = _nonuniform_grid()
+    centers = np.array([0.0, 0.123, -1.3])
+    lineshapes = [Gaussian(stdev=0.7)] * len(centers)
+
+    w = measurement_matrix(lineshapes, centers, samples)
+
+    # Legacy weights use a fast erf approximation
+    np.testing.assert_allclose(
+        w.toarray(), _legacy_matrix(lineshapes, centers, samples), atol=1e-4
+    )
+
+
+def test_measurement_matrix_rectangle_edges_on_samples():
+    # Legacy weights get this wrong, see test_rectangle_linear_edges_on_samples
+    samples = np.arange(498, 502.01, 0.5)
+
+    w = measurement_matrix([Rectangle(1.0)], [500.0], samples)
+
+    np.testing.assert_allclose(
+        w.toarray()[0], np.array([0, 0, 0, 0.25, 0.5, 0.25, 0, 0, 0]), atol=1e-14
+    )
+
+
+def test_measurement_matrix_user_lineshape_integrate_when_grids_do_not_align():
+    # Legacy weights get this wrong, see
+    # test_user_lineshape_integrate_mode_exact_when_grids_do_not_align
+    x = np.arange(-8, 9) * 0.125
+    values = 1 - np.abs(x)
+    samples = np.arange(-48, 49) * 0.0625 + 0.015625
+    lineshape = UserLineShape(x, values, zero_centered=False, mode="integrate")
+
+    w = measurement_matrix([lineshape], [0.0], samples).toarray()[0]
+
+    expected = _exact_piecewise_linear_weights(
+        lambda s: np.interp(s, x, values, left=0, right=0), samples, x
+    )
+    np.testing.assert_allclose(w, expected / expected.sum(), atol=1e-12)
+    np.testing.assert_allclose(w @ samples, 0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "lineshape",
+    [Gaussian(stdev=0.7), Rectangle(0.5), DeltaFunction()],
+    ids=["gaussian", "rectangle", "delta"],
+)
+def test_measurement_matrix_independent_of_sample_order(lineshape):
+    samples = _nonuniform_grid()
+    centers = np.array([0.0, 0.123, -1.3])
+    lineshapes = [lineshape] * len(centers)
+    permutation = np.random.default_rng(1).permutation(len(samples))
+
+    forward = measurement_matrix(lineshapes, centers, samples).toarray()
+    descending = measurement_matrix(lineshapes, centers, samples[::-1]).toarray()
+    shuffled = measurement_matrix(lineshapes, centers, samples[permutation]).toarray()
+
+    np.testing.assert_allclose(descending, forward[:, ::-1], atol=1e-15)
+    np.testing.assert_allclose(shuffled, forward[:, permutation], atol=1e-15)
+
+
+def test_measurement_matrix_accepts_rebasis_spaces():
+    samples = np.linspace(-5, 5, 201)
+    centers = np.array([-1.0, 0.25, 2.0])
+    kernels = rb.Space.voigts(centers, fwhm_gaussian=0.6, fwhm_lorentzian=0.1)
+    expected = rb.measure(kernels, rb.Space.hats(samples), "rowsum").toarray()
+
+    as_space = measurement_matrix(kernels, None, samples)
+    as_list = measurement_matrix([kernels.take([i]) for i in range(3)], None, samples)
+
+    np.testing.assert_allclose(as_space.toarray(), expected, atol=1e-15)
+    np.testing.assert_allclose(as_list.toarray(), expected, atol=1e-15)
+
+
+def test_measurement_matrix_mixes_lineshapes_in_channel_order():
+    samples = np.linspace(-5, 5, 201)
+    centers = np.array([-1.0, 0.25, 2.0, 3.1])
+    lineshapes = [
+        Gaussian(stdev=0.3),
+        rb.Space.gaussians([0.25], sigma=0.3, cutoff=5),
+        DeltaFunction(),
+        Rectangle(0.4, mode="constant"),
+    ]
+
+    w = measurement_matrix(lineshapes, centers, samples).toarray()
+
+    for i, lineshape in enumerate(lineshapes):
+        np.testing.assert_allclose(
+            w[i], measurement_matrix([lineshape], centers[[i]], samples).toarray()[0]
+        )
+    # The same Gaussian as a LineShape and as rebasis kernels, 25 samples apart
+    np.testing.assert_allclose(w[0], np.roll(w[1], -25), atol=1e-15)
+
+
+def test_measurement_matrix_custom_lineshape_uses_integration_weights():
+    class Triangle(LineShape):
+        def integration_weights(self, mean, available_samples, normalize=True):
+            weights = np.maximum(1 - np.abs(available_samples - mean), 0)
+            return weights / weights.sum() if normalize else weights
+
+        def bounds(self, center=0):
+            return center - 1, center + 1
+
+    class SampledGaussian(Gaussian):
+        # Overrides integration_weights, so must not be converted to rebasis
+        def integration_weights(self, mean, available_samples, normalize=True):
+            return super().integration_weights(mean, available_samples, normalize) ** 2
+
+    samples = np.linspace(-5, 5, 101)
+    centers = np.array([0.0, 1.23])
+
+    for lineshape in [Triangle(), SampledGaussian(stdev=0.7)]:
+        w = measurement_matrix([lineshape] * 2, centers, samples)
+
+        np.testing.assert_allclose(
+            w.toarray(), _legacy_matrix([lineshape] * 2, centers, samples), atol=1e-15
+        )
+
+
+def test_measurement_matrix_channels_outside_samples_are_zero():
+    samples = np.linspace(0, 10, 101)
+
+    w = measurement_matrix(
+        [Gaussian(stdev=0.5), Gaussian(stdev=0.5)], [50.0, 5.0], samples
+    ).toarray()
+
+    np.testing.assert_array_equal(w[0], 0.0)
+    np.testing.assert_allclose(w[1].sum(), 1.0)
+
+
+def test_measurement_matrix_rejects_invalid_input():
+    samples = np.linspace(0, 10, 101)
+
+    with pytest.raises(ValueError, match="must have one kernel"):
+        measurement_matrix([rb.Space.gaussians([1.0, 2.0], sigma=0.5)], None, samples)
+    with pytest.raises(ValueError, match="must be distinct"):
+        measurement_matrix([Gaussian(stdev=0.5)], [5.0], np.array([4.0, 5.0, 5.0]))
+    with pytest.raises(ValueError, match="mode must be one of linear or constant"):
+        measurement_matrix([Gaussian(stdev=0.5, mode="cubic")], [5.0], samples)
+
+
+def test_to_space_centers():
+    centers = np.array([1.0, 2.5])
+
+    np.testing.assert_allclose(Gaussian(stdev=0.5).to_space(centers).centers, centers)
+    np.testing.assert_allclose(DeltaFunction().to_space(centers).centers, centers)
+    np.testing.assert_allclose(Rectangle(1.0).to_space(centers).centers, centers)
+    x, values = _asymmetric_lineshape()
+    space = UserLineShape(x + 4.0, values, zero_centered=False).to_space(centers)
+    np.testing.assert_allclose(space.lower, x[0] + 4.0)

@@ -32,16 +32,19 @@ For the spectral dimension, the default is also to assume delta function behavio
 by specifying extra parameters, for example to switch to a Gaussian line shape,
 
 ```python
-from skretrieval.retrieval.core.lineshape import Gaussian
+import rebasis as rb
 
 forward_model_kwargs = {"class": skretrieval.forwardmodel.IdealViewingSpectrograph,
-                        "line_shape_fn": lambda w: Gaussian(fwhm=1.5),
+                        "lineshape_fn": lambda w: rb.Space.gaussians([w], fwhm=1.5),
                         "model_res_nm": 0.1
                         }
 ```
 
 Since the lineshape may be a function of wavelength, we have to specify a function that takes in
 wavelength and returns back the lineshape rather than just a singular lineshape.
+The lineshape is a single [rebasis](https://usask-arg.github.io/rebasis/) kernel centred at the sample
+wavelength, or one of the classes in {py:mod}`skretrieval.core.lineshape`, e.g.,
+`lambda w: Gaussian(fwhm=1.5)`.
 In addition we pass in the `model_res_nm` parameter which indicates the resolution the forward model
 should simulate the radiance at.
 

@@ -12,7 +12,12 @@ def uniform_gaussian_integration_weights(
     output_wavelength: np.ndarray,
     fwhm: np.ndarray,
 ) -> np.ndarray:
-    """Build unnormalized Gaussian weights for a uniform calculation grid."""
+    """
+    Build unnormalized Gaussian weights for a uniform calculation grid.
+
+    No longer used by skretrieval, which convolves with ``rebasis``.  Kept for backwards
+    compatibility.
+    """
     weights = np.zeros(
         (output_wavelength.size, calculation_wavelength.size),
         dtype=np.float64,

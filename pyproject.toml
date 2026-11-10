@@ -9,7 +9,7 @@ description="The University of Saskatchewan Retrieval Framework"
 readme = "README.md"
 license = "MIT"
 license-files = ["license.md"]
-dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran2>=2026.8.1', 'simpleeval', 'scikit-learn']
+dependencies = ['numpy', 'xarray', 'scipy', 'numba', 'sasktran2>=2026.8.1', 'simpleeval', 'scikit-learn', 'pyrebasis>=0.2.1,<0.3']
 authors = [
     { name = "Daniel Zawada", email = "daniel.zawada@usask.ca" },
 ]
