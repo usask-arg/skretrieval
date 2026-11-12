@@ -129,9 +129,20 @@ def test_bounded_solvers_recover_native_map_and_covariance(
     )
 
 
+def test_logistic_target_reports_bounds_in_solver_coordinates():
+    target = _BoundedTarget(True, _HalfBoundedElement())
+
+    # The first element has only an upper bound, so it is not transformed. The
+    # second is doubly bounded and spans the real line in logistic coordinates
+    np.testing.assert_array_equal(target.lower_bound(), [-np.inf, -np.inf])
+    np.testing.assert_array_equal(target.upper_bound(), [1.0, np.inf])
+
+
 @pytest.mark.parametrize("solver", ["materialized", "lsmr", "lbfgsb"])
-def test_included_bounds_may_be_infinite(solver):
-    target = _BoundedTarget(False, _HalfBoundedElement())
+@pytest.mark.parametrize("transform", [True, "affine", False])
+@pytest.mark.parametrize("element", [_BoundedElement, _HalfBoundedElement])
+def test_included_bounds_are_applied_in_solver_coordinates(solver, transform, element):
+    target = _BoundedTarget(transform, element())
     prior = target._native_inverse_apriori_covariance().toarray()
     expected_covariance = np.linalg.inv(np.eye(2) + prior)
     expected_state = expected_covariance @ (

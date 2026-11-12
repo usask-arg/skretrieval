@@ -20,9 +20,12 @@
   Log-space absorber priors are now built in log coordinates, which slightly changes
   existing log-space absorber results. The Gaussian aerosol ignores `scale_factor`,
   which previously had no effect on the retrieval
-- `SciPyMinimizer` with `include_bounds=True` now accepts infinite bounds, such as the
-  lower bound of a log-space quantity with `min_value: 0`. Previously every bound became
-  NaN and the solver refused to start
+- Fixed `SciPyMinimizer` with `include_bounds=True`. Infinite bounds, such as the lower
+  bound of a log-space quantity with `min_value: 0`, no longer turn every bound into NaN.
+  With `rescale_state_space=True` (the default for `scipy_lsmr` and `scipy_lbfgsb`), the
+  target now reports bounds in the solver's logistic coordinates instead of physical
+  units. Previously these retrievals either refused to start or, with L-BFGS-B, silently
+  started from a clipped state and returned wrong results
 
 ## 2026.7.0
 - Fix docs examples (#58)

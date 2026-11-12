@@ -444,16 +444,23 @@ class GenericTarget(RetrievalTarget, LogisticBoundingMixin):
         return np.concatenate(vec)
 
     def lower_bound(self):
-        lower = self._native_lower_bound()
-        if self._state_space_transform_mode() != "affine":
-            return lower
-        return self._map_bounded_to_internal(lower)
+        return self._bound_in_solver_coordinates(self._native_lower_bound(), -np.inf)
 
     def upper_bound(self):
-        upper = self._native_upper_bound()
-        if self._state_space_transform_mode() != "affine":
-            return upper
-        return self._map_bounded_to_internal(upper)
+        return self._bound_in_solver_coordinates(self._native_upper_bound(), np.inf)
+
+    def _bound_in_solver_coordinates(
+        self, bound: np.ndarray, unbounded: float
+    ) -> np.ndarray:
+        mode = self._state_space_transform_mode()
+        if mode == "affine":
+            return self._map_bounded_to_internal(bound)
+        if mode == "logistic":
+            # The transform maps doubly bounded elements onto the whole real
+            # line; other elements are untransformed and keep their bounds
+            lb, ub = self._mapping_bounds()
+            return np.where((lb != -np.inf) & (ub != np.inf), unbounded, bound)
+        return bound
 
     def update_state(self, x: np.ndarray):
         rescaled_x = self._map_internal_to_bounded(x)
