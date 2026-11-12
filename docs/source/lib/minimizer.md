@@ -15,6 +15,10 @@ can be useful for debugging purposes.
 The other minimizer that is available is the {py:class}`skretrieval.retrieval.scipy.SciPyMinimizer` which is a wrapper
 around the {py:func}`scipy.optimize.least_squares` function.  You should consider using this minimizer instead
 if your problem is highly non-linear, or has many state vector elements that should remain bounded.
+With `minimizer="scipy"` and `target_kwargs={"rescale_state_space": True}` (or `"affine"`), `Retrieval`
+defaults to `x_scale=1.0` instead of SciPy's Jacobian-based scaling. The rescaled coordinates are already
+comparable, and Jacobian scaling can stall the solver when states sit near a bound. Pass `x_scale` in
+`minimizer_kwargs` to override this.
 
 `SciPyMinimizer` can be configured with `jacobian_mode="matrix_free"` to use SASKTRAN2 linearization products
 instead of materializing the full measurement Jacobian. This requires a SASKTRAN2 version that provides

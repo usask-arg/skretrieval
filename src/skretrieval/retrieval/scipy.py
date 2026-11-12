@@ -339,7 +339,8 @@ class SciPyMinimizer(Minimizer):
             Internal scaling applied by the minimizer, by default "jac". When
             using ``jacobian_mode="matrix_free"``, ``x_scale="jac"`` is replaced
             by ``1.0`` because SciPy does not support Jacobian scaling for
-            ``LinearOperator`` Jacobians.
+            ``LinearOperator`` Jacobians. ``Retrieval(minimizer="scipy")``
+            passes ``1.0`` when the target rescales the state space.
         tr_solver : str, optional
             For the "trf" method, how to solve the trust region problem, by default "exact"
         apply_state_scaling: bool, optional

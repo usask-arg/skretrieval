@@ -388,7 +388,14 @@ class Retrieval:
         if self._minimizer == "rodgers":
             minimizer = Rodgers(**self._minimizer_kwargs)
         elif self._minimizer == "scipy":
-            minimizer = SciPyMinimizer(**self._minimizer_kwargs)
+            # Rescaled state coordinates are already comparable, and Jacobian
+            # column scaling inflates the flat logistic directions near bounds
+            rescale = self._target_kwargs.get("rescale_state_space", False)
+            if isinstance(rescale, str):
+                rescale = rescale.lower() != "none"
+            scipy_kwargs = {"x_scale": 1.0} if rescale else {}
+            scipy_kwargs.update(self._minimizer_kwargs)
+            minimizer = SciPyMinimizer(**scipy_kwargs)
         elif self._minimizer == "scipy_lsmr":
             scipy_lsmr_kwargs = {
                 "jacobian_mode": "matrix_free",
