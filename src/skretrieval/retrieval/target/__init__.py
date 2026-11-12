@@ -234,12 +234,10 @@ class LogisticBoundingMixin:
             return transform @ inv_Sa @ transform
 
         xb = self._map_internal_to_bounded(x)
-        mapping = np.zeros_like(x)
-        no_map = (lb == -np.inf) & (ub == np.inf)
+        # Elements without two finite bounds are not transformed
+        mapping = np.ones_like(x)
 
         both_bounds = (lb != -np.inf) & (ub != np.inf)
-
-        mapping[no_map] = 1
 
         mapping[both_bounds] = (ub[both_bounds] - lb[both_bounds]) / (
             (xb[both_bounds] - lb[both_bounds]) * (ub[both_bounds] - xb[both_bounds])

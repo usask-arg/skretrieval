@@ -25,6 +25,11 @@ from .statevector.altitude import AltitudeNativeStateVector
 from .target.mvtarget import MeasVecTarget
 
 
+def _to_state_space(values: np.array, log_space: bool) -> np.array:
+    # Priors and initial guesses are compared directly against the retrieval state
+    return np.log(values) if log_space else values
+
+
 class Retrieval:
     _optical_property_fns: ClassVar[ChainMap[str, callable]] = ChainMap()
     _prior_fns: ClassVar[ChainMap[str, callable]] = ChainMap()
@@ -239,7 +244,8 @@ class Retrieval:
             min_value={"vmr": min_val},
             max_value={"vmr": max_val},
             prior={
-                "vmr": tikh * prior.VerticalTikhonov(1, new_vmr)
+                "vmr": tikh
+                * prior.VerticalTikhonov(1, _to_state_space(new_vmr, log_space))
                 + prior_infl * prior.ConstantDiagonalPrior()
             },
             log_space=log_space,
@@ -492,6 +498,29 @@ def lambertian_state(self, name, native_alt_grid: np.array, cfg: dict):  # noqa:
     return sv_ele
 
 
+def _aerosol_log_space(cfg: dict) -> dict[str, bool]:
+    """Per-quantity log_space, falling back to a top-level ``log_space`` key."""
+    default = cfg.get("log_space", False)
+    return {
+        name: val.get("log_space", default)
+        for name, val in cfg["retrieved_quantities"].items()
+    }
+
+
+def _initial_guess_in_state_space(
+    initial_guess: np.array, constituent, log_space: dict[str, bool]
+) -> np.array:
+    """Convert concatenated property values to retrieval-state coordinates."""
+    sizes = [np.size(getattr(constituent, name)) for name in log_space]
+    values = np.split(np.asarray(initial_guess, dtype=float), np.cumsum(sizes)[:-1])
+    return np.concatenate(
+        [
+            _to_state_space(value, log)
+            for value, log in zip(values, log_space.values(), strict=True)
+        ]
+    )
+
+
 @Retrieval.register_state("aerosols", "extinction_profile")
 def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
     if cfg.get("prior_state") is not None:
@@ -532,6 +561,8 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
         **secondary_kwargs,
     )
 
+    log_space = _aerosol_log_space(cfg)
+
     sv_ele = StateVectorElementConstituent(
         aero_const,
         f"{name}",
@@ -545,18 +576,23 @@ def aerosol_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: 
         prior={
             name: val["tikh_factor"]
             * prior.VerticalTikhonov(
-                1, prior_state=secondary_kwargs.get(name, ext * scale_factor)
+                1,
+                prior_state=_to_state_space(
+                    secondary_kwargs.get(name, ext * scale_factor), log_space[name]
+                ),
             )
             + val["prior_influence"] * prior.ConstantDiagonalPrior()
             for name, val in cfg["retrieved_quantities"].items()
         },
-        log_space=False,
+        log_space=log_space,
     )
 
     sv_ele.enabled = cfg.get("enabled", True)
 
     if cfg.get("initial_guess") is not None:
-        sv_ele.update_state(cfg["initial_guess"])
+        sv_ele.update_state(
+            _initial_guess_in_state_space(cfg["initial_guess"], aero_const, log_space)
+        )
 
     return sv_ele
 
@@ -595,8 +631,6 @@ def constant_los(self, name: str, native_alt_grid: np.array, cfg: dict):  # noqa
 
 @Retrieval.register_state("aerosols", "gaussian_extinction_profile")
 def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg: dict):
-    scale_factor = cfg.get("scale_factor", 1)
-
     secondary_kwargs = {
         name: np.ones_like(native_alt_grid) * cfg["prior"][name]["value"]
         for name in cfg["prior"]
@@ -616,6 +650,8 @@ def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg:
         **secondary_kwargs,
     )
 
+    log_space = _aerosol_log_space(cfg)
+
     sv_ele = StateVectorElementConstituent(
         aero_const,
         f"{name}",
@@ -630,20 +666,25 @@ def gaussian_extinction_profile(self, name: str, native_alt_grid: np.array, cfg:
             name: val["tikh_factor"]
             * prior.VerticalTikhonov(
                 1,
-                prior_state=secondary_kwargs.get(
-                    name, np.atleast_1d(cfg["prior"][name]["value"] * scale_factor)
+                prior_state=_to_state_space(
+                    secondary_kwargs.get(
+                        name, np.atleast_1d(cfg["prior"][name]["value"])
+                    ),
+                    log_space[name],
                 ),
             )
             + val["prior_influence"] * prior.ConstantDiagonalPrior()
             for name, val in cfg["retrieved_quantities"].items()
         },
-        log_space=False,
+        log_space=log_space,
     )
 
     sv_ele.enabled = cfg.get("enabled", True)
 
     if cfg.get("initial_guess") is not None:
-        sv_ele.update_state(cfg["initial_guess"])
+        sv_ele.update_state(
+            _initial_guess_in_state_space(cfg["initial_guess"], aero_const, log_space)
+        )
 
     return sv_ele
 
