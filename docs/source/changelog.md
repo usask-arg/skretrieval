@@ -9,6 +9,9 @@
   `SASKTRANRadiance.from_sasktran_legacy_xr`; support for the original SASKTRAN model has been dropped
 - `jdcal` and `astropy` are no longer dependencies
 - Fixed several bugs in the DOAS fitter, lineshapes, and `AdditiveSpline`
+- Each `Retrieval` subclass now has its own optical property, prior, and state
+  registries, so packages registering the same names on their own subclasses no
+  longer replace each other. Subclasses still resolve registrations made on `Retrieval`
 
 ## 2026.7.0
 - Fix docs examples (#58)
