@@ -20,6 +20,9 @@
   Log-space absorber priors are now built in log coordinates, which slightly changes
   existing log-space absorber results. The Gaussian aerosol ignores `scale_factor`,
   which previously had no effect on the retrieval
+- `SciPyMinimizer` with `include_bounds=True` now accepts infinite bounds, such as the
+  lower bound of a log-space quantity with `min_value: 0`. Previously every bound became
+  NaN and the solver refused to start
 
 ## 2026.7.0
 - Fix docs examples (#58)

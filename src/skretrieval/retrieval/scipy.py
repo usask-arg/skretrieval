@@ -742,8 +742,11 @@ class SciPyMinimizer(Minimizer):
         fun = MemoizeJac(residual_fun)
         jac = fun.derivative
 
+        # The scaling is diagonal; applying it elementwise keeps infinite bounds
+        # infinite, where a matrix product would give NaN from 0 * inf
+        bound_scale = np.diag(x_scaler_inv)
         bounds = (
-            (x_scaler_inv @ lb, x_scaler_inv @ ub)
+            (bound_scale * lb, bound_scale * ub)
             if self._include_bounds
             else (np.ones_like(lb) * (-np.inf), np.ones_like(ub) * np.inf)
         )

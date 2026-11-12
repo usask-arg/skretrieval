@@ -54,9 +54,15 @@ class _IdentityOperator:
         return np.asarray(value)
 
 
+class _HalfBoundedElement(_BoundedElement):
+    def lower_bound(self):
+        return np.array([-np.inf, 0.0])
+
+
 class _BoundedTarget(GenericTarget):
-    def __init__(self, transform=True):
-        super().__init__(StateVector([_BoundedElement()]), transform)
+    def __init__(self, transform=True, element=None):
+        element = _BoundedElement() if element is None else element
+        super().__init__(StateVector([element]), transform)
 
     def _internal_measurement_vector(self, l1_data):
         if l1_data == "measurement":
@@ -121,6 +127,33 @@ def test_bounded_solvers_recover_native_map_and_covariance(
         expected_covariance @ expected_covariance,
         atol=1e-7,
     )
+
+
+@pytest.mark.parametrize("solver", ["materialized", "lsmr", "lbfgsb"])
+def test_included_bounds_may_be_infinite(solver):
+    target = _BoundedTarget(False, _HalfBoundedElement())
+    prior = target._native_inverse_apriori_covariance().toarray()
+    expected_covariance = np.linalg.inv(np.eye(2) + prior)
+    expected_state = expected_covariance @ (
+        np.array([0.9, 0.7]) + prior @ target._native_apriori_state()
+    )
+    options = (
+        {"minimize_options": {"gtol": 1e-10}} if solver == "lbfgsb" else {"gtol": 1e-10}
+    )
+
+    result = SciPyMinimizer(
+        jacobian_mode="materialized" if solver == "materialized" else "matrix_free",
+        matrix_free_solver="lbfgsb" if solver == "lbfgsb" else "lsmr",
+        include_bounds=True,
+        max_nfev=100,
+        ftol=1e-12,
+        xtol=1e-12,
+        verbose=0,
+        **options,
+    ).retrieve("measurement", _ForwardModel(), target)
+
+    assert result["minimizer"].success
+    np.testing.assert_allclose(target._native_state_vector(), expected_state, atol=1e-7)
 
 
 @pytest.mark.parametrize("solver", ["lsmr", "lbfgsb"])
