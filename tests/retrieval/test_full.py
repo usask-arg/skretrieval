@@ -135,3 +135,63 @@ def test_retrieval_keeps_active_state_through_output_and_restores_flags(monkeypa
     assert result["simulated_l1"] == "simulated"
     assert all(element.enabled for element in retrieval._state_vector.sv.values())
     assert retrieval._measurement_vector["measurement"].enabled
+
+
+@pytest.mark.parametrize(
+    ("target_kwargs", "minimizer_kwargs", "expected_x_scale"),
+    [
+        pytest.param({"rescale_state_space": True}, {}, 1.0, id="logistic"),
+        pytest.param({"rescale_state_space": "affine"}, {}, 1.0, id="affine"),
+        pytest.param({"rescale_state_space": "none"}, {}, None, id="none"),
+        pytest.param({}, {}, None, id="unscaled"),
+        pytest.param(
+            {"rescale_state_space": True}, {"x_scale": "jac"}, "jac", id="explicit"
+        ),
+    ],
+)
+def test_scipy_uses_unit_x_scale_for_rescaled_state(
+    monkeypatch, target_kwargs, minimizer_kwargs, expected_x_scale
+):
+    class StateVector:
+        def __init__(self):
+            self.sv = {}
+
+        def describe(self, _result):
+            return "state"
+
+    class Target:
+        def update_state_slices(self):
+            pass
+
+    class ForwardModel:
+        def calculate_radiance(self):
+            return "simulated"
+
+    minimizer_options = {}
+
+    class Minimizer:
+        def __init__(self, **kwargs):
+            minimizer_options.update(kwargs)
+
+        def retrieve(self, *_args):
+            return {}
+
+    monkeypatch.setattr(
+        "skretrieval.retrieval.processing.SciPyMinimizer",
+        Minimizer,
+    )
+
+    retrieval = skr.Retrieval.__new__(skr.Retrieval)
+    retrieval._minimizer = "scipy"
+    retrieval._minimizer_kwargs = minimizer_kwargs
+    retrieval._target_kwargs = target_kwargs
+    retrieval._state_vector = StateVector()
+    retrieval._measurement_vector = {}
+    retrieval._target = Target()
+    retrieval._forward_model = ForwardModel()
+    retrieval._obs_l1 = "measured"
+
+    retrieval.retrieve()
+
+    # None means the SciPyMinimizer default ("jac") applies
+    assert minimizer_options.get("x_scale") == expected_x_scale
