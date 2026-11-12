@@ -26,6 +26,38 @@ def test_logistic_bound_mapping_keeps_exact_endpoints_finite():
     np.testing.assert_allclose(round_trip, bounded, rtol=0.0, atol=1.0e-15)
 
 
+def test_logistic_prior_mapping_leaves_one_sided_bounds_unscaled():
+    class Target(LogisticBoundingMixin):
+        _rescale_state_elements = True
+
+        def state_vector(self):
+            return np.array([0.3, -14.0, 2.0, 5.0])
+
+        def lower_bound(self):
+            return np.array([-1.0, -np.inf, 0.0, -np.inf])
+
+        def upper_bound(self):
+            return np.array([1.0, np.log(1.0e-3), np.inf, np.inf])
+
+    target = Target()
+    native_precision = np.array(
+        [
+            [2.0, 0.5, 0.0, 0.1],
+            [0.5, 3.0, 0.2, 0.0],
+            [0.0, 0.2, 4.0, 0.3],
+            [0.1, 0.0, 0.3, 5.0],
+        ]
+    )
+
+    mapped = target._map_inv_Sa_by_dinternal(target.state_vector(), native_precision)
+
+    derivative = target._bounded_state_derivative_by_internal()
+    np.testing.assert_allclose(derivative[1:], 1.0)
+    np.testing.assert_allclose(
+        mapped, np.diag(derivative) @ native_precision @ np.diag(derivative)
+    )
+
+
 def test_logistic_bound_mapping_wraps_operator_without_mutating_it():
     jacobian = np.array([[1.0, -2.0], [0.5, 3.0], [-1.5, 0.25]])
 

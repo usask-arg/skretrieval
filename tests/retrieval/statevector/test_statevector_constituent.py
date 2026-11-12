@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
+import pytest
 import sasktran2 as sk2
 import xarray as xr
 
 from skretrieval.retrieval.prior import ManualPrior
-from skretrieval.retrieval.processing import Retrieval, aerosol_extinction_profile
+from skretrieval.retrieval.processing import (
+    Retrieval,
+    aerosol_extinction_profile,
+    gaussian_extinction_profile,
+)
 from skretrieval.retrieval.statevector import StateVector
 from skretrieval.retrieval.statevector.altitude import AltitudeNativeStateVector
 from skretrieval.retrieval.statevector.constituent import StateVectorElementConstituent
@@ -227,11 +234,150 @@ def test_aerosol_prior_state_is_copied_and_all_zero_profile_is_supported():
     np.testing.assert_array_equal(element.state(), np.full(4, 1.0e-15))
 
 
+def _aerosol_processor(altitude_grid):
+    reference = sk2.test_util.scenarios.test_aerosol_constituent(altitude_grid)
+    processor = Retrieval.__new__(Retrieval)
+    processor._optical_property = lambda _name: reference._optical_property
+    return processor
+
+
+def _aerosol_quantity(**kwargs):
+    cfg = {
+        "min_value": 0.0,
+        "max_value": 1.0,
+        "tikh_factor": 1.0,
+        "prior_influence": 1.0,
+    }
+    cfg.update(kwargs)
+    return cfg
+
+
+@pytest.mark.parametrize(
+    ("top_level", "per_quantity"),
+    [({}, {"log_space": True}), ({"log_space": True}, {})],
+    ids=["per_quantity", "top_level"],
+)
+def test_aerosol_extinction_profile_uses_configured_log_space(top_level, per_quantity):
+    altitude_grid = np.arange(0.0, 4000.0, 1000.0)
+    extinction = np.array([1.0e-6, 2.0e-6, 3.0e-6, 4.0e-6])
+    config = {
+        "prior_state": extinction,
+        "prior": {
+            "extinction_per_m": {"value": 0.0},
+            "lognormal_median_radius": {"value": 105.0},
+        },
+        "retrieved_quantities": {
+            # Strong smoothing so a linear Tikhonov prior state would shift x_a
+            "extinction_per_m": _aerosol_quantity(tikh_factor=1e8, **per_quantity),
+        },
+        **top_level,
+    }
+
+    element = aerosol_extinction_profile(
+        _aerosol_processor(altitude_grid), "aerosol", altitude_grid, config
+    )
+
+    np.testing.assert_allclose(element.state(), np.log(extinction))
+    np.testing.assert_allclose(element.apriori_state(), np.log(extinction))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        np.testing.assert_array_equal(element.lower_bound(), np.full(4, -np.inf))
+
+
+def test_gaussian_extinction_profile_uses_per_quantity_log_space():
+    altitude_grid = np.arange(0.0, 30000.0, 1000.0)
+    config = {
+        "log_space": True,
+        "prior": {
+            "vertical_optical_depth": {"value": 0.05},
+            "width_fwhm_m": {"value": 5000.0},
+            "height_m": {"value": 15000.0},
+            "lognormal_median_radius": {"value": 105.0},
+        },
+        "retrieved_quantities": {
+            "vertical_optical_depth": _aerosol_quantity(),
+            "height_m": _aerosol_quantity(max_value=25000.0, log_space=False),
+        },
+    }
+
+    element = gaussian_extinction_profile(
+        _aerosol_processor(altitude_grid), "cloud", altitude_grid, config
+    )
+
+    np.testing.assert_allclose(element.state(), [np.log(0.05), 15000.0])
+    np.testing.assert_allclose(element.apriori_state(), [np.log(0.05), 15000.0])
+
+
+@pytest.mark.parametrize("log_space", [False, True])
+def test_aerosol_initial_guess_is_given_in_property_units(log_space):
+    altitude_grid = np.arange(0.0, 4000.0, 1000.0)
+    extinction_guess = np.array([5.0e-6, 6.0e-6, 7.0e-6, 8.0e-6])
+    radius_guess = np.array([90.0, 95.0, 100.0, 110.0])
+    config = {
+        "prior_state": np.array([1.0e-6, 2.0e-6, 3.0e-6, 4.0e-6]),
+        "initial_guess": np.concatenate([extinction_guess, radius_guess]),
+        "prior": {
+            "extinction_per_m": {"value": 0.0},
+            "lognormal_median_radius": {"value": 105.0},
+        },
+        "retrieved_quantities": {
+            "extinction_per_m": _aerosol_quantity(log_space=log_space),
+            "lognormal_median_radius": _aerosol_quantity(max_value=500.0),
+        },
+    }
+
+    element = aerosol_extinction_profile(
+        _aerosol_processor(altitude_grid), "aerosol", altitude_grid, config
+    )
+
+    expected_extinction = np.log(extinction_guess) if log_space else extinction_guess
+    np.testing.assert_allclose(
+        element.state(), np.concatenate([expected_extinction, radius_guess])
+    )
+
+
+def test_gaussian_prior_matches_constituent_when_scale_factor_is_set():
+    altitude_grid = np.arange(0.0, 30000.0, 1000.0)
+    config = {
+        "scale_factor": 7.0,
+        "prior": {
+            "vertical_optical_depth": {"value": 0.05},
+            "width_fwhm_m": {"value": 5000.0},
+            "height_m": {"value": 15000.0},
+            "lognormal_median_radius": {"value": 105.0},
+        },
+        "retrieved_quantities": {
+            # Without a diagonal term the Tikhonov prior state sets x_a
+            "vertical_optical_depth": _aerosol_quantity(prior_influence=0.0),
+        },
+    }
+
+    element = gaussian_extinction_profile(
+        _aerosol_processor(altitude_grid), "cloud", altitude_grid, config
+    )
+
+    np.testing.assert_allclose(element.state(), [0.05])
+    np.testing.assert_allclose(element.apriori_state(), [0.05])
+
+
 def _rodgers_output(num_state: int):
     return {
         "error_covariance_from_noise": np.eye(num_state) * 0.25,
         "averaging_kernel": np.eye(num_state),
     }
+
+
+def test_default_absorber_log_space_prior_is_in_state_coordinates():
+    processor = Retrieval.__new__(Retrieval)
+
+    absorber = Retrieval._default_state_absorber(
+        processor,
+        "o3",
+        np.arange(0, 70001, 5000.0),
+        _absorber_config(log_space=True, tikh_factor=1e8),
+    )
+
+    np.testing.assert_allclose(absorber.apriori_state(), absorber.state())
 
 
 def test_default_absorber_can_use_separate_retrieval_altitude_grid():

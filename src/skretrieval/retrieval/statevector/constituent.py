@@ -169,6 +169,9 @@ class StateVectorElementConstituent(
     ) -> np.ndarray:
         if np.isinf(bound):
             return np.full(size, bound)
+        if self._property_uses_log_space(property_name) and bound <= 0:
+            # exp(state) is always positive, so this bound never binds
+            return np.full(size, -np.inf)
         return self._transform_property(property_name, np.full(size, bound))
 
     def _property_state_size(self, property_name: str) -> int:

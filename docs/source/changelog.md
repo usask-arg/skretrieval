@@ -15,6 +15,11 @@
 - Each `Retrieval` subclass now has its own optical property, prior, and state
   registries, so packages registering the same names on their own subclasses no
   longer replace each other. Subclasses still resolve registrations made on `Retrieval`
+- Aerosol state elements now honour `log_space`, set per retrieved quantity or for
+  the whole aerosol. Aerosol `initial_guess` values are given in physical units.
+  Log-space absorber priors are now built in log coordinates, which slightly changes
+  existing log-space absorber results. The Gaussian aerosol ignores `scale_factor`,
+  which previously had no effect on the retrieval
 
 ## 2026.7.0
 - Fix docs examples (#58)
